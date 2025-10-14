@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Gemini Live Hologram (Stable)</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gemini Live Hologram – Synced</title>
 <style>
 body{
   background:#050510;color:#7df;font-family:monospace;
@@ -47,7 +47,7 @@ const frames={
 
 let ai,session,micStream,inCtx,outCtx,analyser;
 let mouthTimer,pose=0;
-let connected=false,closing=false;
+let nextStartTime=0,queueLen=0,closing=false;
 
 function setStatus(t){statusEl.textContent="Status: "+t;}
 function setFrame(open){
@@ -71,99 +71,91 @@ function startMouth(){
 }
 function stopMouth(){clearInterval(mouthTimer);mouthTimer=null;setFrame(false);}
 
-// --- Connect ---
+// --- Connection ---
 connectBtn.onclick=async()=>{
-  if(connected){setStatus("Already connected.");return;}
+  if(session){setStatus("Already connected.");return;}
   closing=false;
-  const key=prompt("Enter your Gemini API key:");
-  if(!key)return;
+  const key=prompt("Enter your Gemini API key:"); if(!key)return;
   setStatus("Connecting...");
-
   ai=new GoogleGenAI({apiKey:key});
   inCtx=new AudioContext({sampleRate:16000});
   outCtx=new AudioContext({sampleRate:24000});
-  analyser=outCtx.createAnalyser();
-  analyser.connect(outCtx.destination);
+  analyser=outCtx.createAnalyser(); analyser.connect(outCtx.destination);
 
-  // Ask for mic
-  try{
-    micStream=await navigator.mediaDevices.getUserMedia({audio:true});
-  }catch(e){
-    setStatus("Mic permission denied");
-    return;
-  }
+  try{micStream=await navigator.mediaDevices.getUserMedia({audio:true});}
+  catch(e){setStatus("Mic permission denied");return;}
 
   const micSrc=inCtx.createMediaStreamSource(micStream);
   const proc=inCtx.createScriptProcessor(4096,1,1);
   micSrc.connect(proc);proc.connect(inCtx.destination);
 
-  // Create ONE session
   session=await ai.live.connect({
     model:"gemini-2.5-flash-native-audio-preview-09-2025",
     callbacks:{
-      onopen:()=>{setStatus("Connected");connected=true;avatar.style.opacity=1;},
+      onopen:()=>{setStatus("Connected");avatar.style.opacity=1;},
       onmessage:onMessage,
       onerror:e=>setStatus("Error: "+e.message),
-      onclose:()=>{if(!closing)setStatus("Disconnected");connected=false;}
+      onclose:()=>{if(!closing)setStatus("Disconnected");session=null;}
     },
     config:{
       responseModalities:[Modality.AUDIO],
       speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:"Zephyr"}}},
-      systemInstruction:"You are a friendly holographic AI speaking naturally. Respond smoothly in conversation."
+      systemInstruction:"You are a calm, continuous holographic AI that speaks naturally without repetition."
     }
   });
 
-  // Continuous mic stream
   proc.onaudioprocess=e=>{
-    if(!connected)return;
+    if(!session)return;
     const d=e.inputBuffer.getChannelData(0);
     const i16=new Int16Array(d.length);
     for(let i=0;i<d.length;i++)i16[i]=d[i]*32768;
     const b64=btoa(String.fromCharCode(...new Uint8Array(i16.buffer)));
-    try{
-      session.sendRealtimeInput({media:{data:b64,mimeType:"audio/pcm;rate=16000"}});
-    }catch{}
+    session.sendRealtimeInput({media:{data:b64,mimeType:"audio/pcm;rate=16000"}});
   };
 
-  connectBtn.disabled=true;
-  endBtn.disabled=false;
+  connectBtn.disabled=true; endBtn.disabled=false;
   setStatus("Live voice chat ready.");
 };
 
-// --- Single-stream playback ---
-let playing=false;
+// --- Sequential playback ---
 function onMessage(msg){
   const data=msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-  if(!data)return;
-  try{
-    const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));
-    const int16=new Int16Array(bytes.buffer);
-    const buf=outCtx.createBuffer(1,int16.length,24000);
-    const ch=buf.getChannelData(0);
-    for(let i=0;i<int16.length;i++)ch[i]=int16[i]/32768;
-    const src=outCtx.createBufferSource();
-    src.buffer=buf;src.connect(analyser);
-    if(outCtx.state==="suspended")outCtx.resume();
-    src.start();
-    playing=true;
-    startMouth();
-    src.onended=()=>{playing=false;stopMouth();};
-  }catch(e){console.warn("playback error",e);}
+  if(!data||!outCtx)return;
+  const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));
+  const int16=new Int16Array(bytes.buffer);
+  const buf=outCtx.createBuffer(1,int16.length,24000);
+  const ch=buf.getChannelData(0);
+  for(let i=0;i<int16.length;i++)ch[i]=int16[i]/32768;
+
+  // If too much queued, drop earliest buffer
+  if(queueLen>3){nextStartTime=outCtx.currentTime;}
+  queueLen=Math.max(0,queueLen-buf.duration);
+
+  const src=outCtx.createBufferSource();
+  src.buffer=buf; src.connect(analyser);
+  const startAt=Math.max(outCtx.currentTime,nextStartTime+0.01);
+  nextStartTime=startAt+buf.duration;
+  queueLen+=buf.duration;
+
+  if(outCtx.state==="suspended")outCtx.resume();
+  src.start(startAt);
+
+  startMouth();
+  src.onended=()=>{
+    queueLen=Math.max(0,queueLen-buf.duration);
+    if(queueLen<=0)stopMouth();
+  };
 }
 
 // --- End / cleanup ---
 endBtn.onclick=()=>{
   closing=true;
   setStatus("Closing...");
-  connected=false;
-  if(session){try{session.close();}catch{}}
-  if(micStream){micStream.getTracks().forEach(t=>t.stop());}
-  if(inCtx){inCtx.close();}
-  if(outCtx){outCtx.close();}
-  connectBtn.disabled=false;
-  endBtn.disabled=true;
-  stopMouth();
-  setFrame(false);
+  if(session){try{session.close();}catch{} session=null;}
+  if(micStream)micStream.getTracks().forEach(t=>t.stop());
+  if(inCtx)inCtx.close(); if(outCtx)outCtx.close();
+  connectBtn.disabled=false; endBtn.disabled=true;
+  stopMouth(); setFrame(false);
   setStatus("Idle");
 };
 </script>
