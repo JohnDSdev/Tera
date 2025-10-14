@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gemini Live Hologram</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Gemini Live Hologram – Final Stable</title>
 <style>
 html,body{
   height:100%;margin:0;
@@ -18,14 +18,13 @@ html,body{
   filter:
     drop-shadow(0 0 4px #00ffff)
     drop-shadow(0 0 12px #00ffff)
-    brightness(1.6)
+    brightness(1.5)
     contrast(1.2);
-  opacity:0;
-  animation:holoStart 1.2s ease forwards;
+  opacity:0;transition:opacity 1s ease;
 }
-@keyframes holoStart{
-  0%{opacity:0;transform:scaleY(0.2) translateY(20vh) skewY(-5deg);}
-  70%{opacity:1;transform:scaleY(1.05) translateY(0) skewY(1deg);}
+@keyframes holoIn{
+  0%{opacity:0;transform:scaleY(0.3) translateY(20vh) skewY(-3deg);}
+  70%{opacity:1;transform:scaleY(1.05) translateY(0) skewY(2deg);}
   100%{opacity:1;transform:scaleY(1) skewY(0);}
 }
 #status{margin:8px}
@@ -46,7 +45,7 @@ select{font-weight:600}
     <option value="Zephyr">Zephyr</option>
     <option value="Aria">Aria</option>
     <option value="Breeze">Breeze</option>
-    <option value="Nova">Nova</option>
+    <option value="Nova" selected>Nova</option>
     <option value="Orbit">Orbit</option>
     <option value="Solstice">Solstice</option>
     <option value="Sable">Sable</option>
@@ -59,6 +58,12 @@ select{font-weight:600}
 <script type="module">
 import { GoogleGenAI, Modality } from "https://aistudiocdn.com/@google/genai@1.24.0";
 
+const avatar=document.getElementById("avatar");
+const statusEl=document.getElementById("status");
+const connectBtn=document.getElementById("connect");
+const endBtn=document.getElementById("end");
+const voiceSel=document.getElementById("voice");
+
 const frames={
   armClosed:"arm_out_mouth_closed.png",
   armOpen:"arm_out_mouth_open.png",
@@ -66,14 +71,9 @@ const frames={
   backOpen:"arm_behind_mouth_open.png"
 };
 
-const avatar=document.getElementById("avatar");
-const statusEl=document.getElementById("status");
-const connectBtn=document.getElementById("connect");
-const endBtn=document.getElementById("end");
-const voiceSel=document.getElementById("voice");
-
 let ai,session,inCtx,outCtx,analyser;
-let micStream,closing=false,playing=false;
+let micStream,closing=false;
+let playing=false; // ensure one response at a time
 let pose=0,smoothRMS=0,mouthRAF=null;
 
 function setStatus(t){statusEl.textContent="Status: "+t;}
@@ -82,11 +82,11 @@ function setFrame(open){
   else avatar.src=open?frames.armOpen:frames.armClosed;
 }
 
-/* ---- Mouth animation ---- */
+/* ----- Mouth animation (non-blocking) ----- */
 function startMouth(){
   if(mouthRAF)return;
   const buf=new Uint8Array(analyser.fftSize);
-  const step=()=>{
+  const animate=()=>{
     analyser.getByteTimeDomainData(buf);
     let sum=0;
     for(let i=0;i<buf.length;i++){const f=(buf[i]-128)/128;sum+=f*f;}
@@ -95,16 +95,16 @@ function startMouth(){
     const open=smoothRMS>0.025;
     if(smoothRMS>0.055)pose=pose?0:1;
     setFrame(open);
-    mouthRAF=requestAnimationFrame(step);
+    mouthRAF=requestAnimationFrame(animate);
   };
-  mouthRAF=requestAnimationFrame(step);
+  mouthRAF=requestAnimationFrame(animate);
 }
 function stopMouth(){
   if(mouthRAF){cancelAnimationFrame(mouthRAF);mouthRAF=null;}
   setFrame(false);
 }
 
-/* ---- Connect ---- */
+/* ----- Connect ----- */
 connectBtn.onclick=async()=>{
   if(session){setStatus("Already connected");return;}
   const key=prompt("Enter your Gemini API key:"); if(!key)return;
@@ -125,7 +125,7 @@ connectBtn.onclick=async()=>{
   session=await ai.live.connect({
     model:"gemini-2.5-flash-native-audio-preview-09-2025",
     callbacks:{
-      onopen:()=>{setStatus("Listening...");avatar.style.opacity=1;},
+      onopen:()=>{setStatus("Listening...");avatar.style.animation="holoIn 1.2s ease forwards";},
       onmessage:onMessage,
       onerror:e=>setStatus("Error: "+e.message),
       onclose:()=>{if(!closing)setStatus("Closed");session=null;}
@@ -133,7 +133,7 @@ connectBtn.onclick=async()=>{
     config:{
       responseModalities:[Modality.AUDIO],
       speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:chosenVoice}}},
-      systemInstruction:"Speak naturally in one continuous response; do not overlap or echo yourself."
+      systemInstruction:"Speak naturally, one complete sentence per response. Do not overlap yourself."
     }
   });
 
@@ -149,10 +149,10 @@ connectBtn.onclick=async()=>{
   connectBtn.disabled=true; endBtn.disabled=false;
 };
 
-/* ---- Playback (one at a time) ---- */
+/* ----- Audio playback (one at a time) ----- */
 function onMessage(msg){
   const data=msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-  if(!data||!outCtx||playing) return;
+  if(!data||!outCtx||playing)return;
   playing=true;
 
   const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));
@@ -161,14 +161,17 @@ function onMessage(msg){
   const ch=buf.getChannelData(0);
   for(let i=0;i<int16.length;i++)ch[i]=int16[i]/32768;
 
-  const fade=0.02; const fs=Math.floor(fade*buf.sampleRate);
-  for(let i=0;i<fs;i++){const x=i/fs;ch[i]*=x;ch[ch.length-1-i]*=x;}
+  // small fade in/out to remove click pops
+  const fade=0.03; const fS=Math.floor(fade*buf.sampleRate);
+  for(let i=0;i<fS;i++){const x=i/fS;ch[i]*=x;ch[ch.length-1-i]*=x;}
 
   const src=outCtx.createBufferSource();
   src.buffer=buf;
   const gain=outCtx.createGain();
+  const splitter=outCtx.createChannelSplitter(1);
   src.connect(gain);
-  gain.connect(analyser);
+  gain.connect(splitter);
+  splitter.connect(analyser);
   gain.connect(outCtx.destination);
 
   if(outCtx.state==="suspended")outCtx.resume();
@@ -180,7 +183,7 @@ function onMessage(msg){
   };
 }
 
-/* ---- End ---- */
+/* ----- End / cleanup ----- */
 endBtn.onclick=()=>{
   closing=true;
   if(session){try{session.close();}catch{} session=null;}
