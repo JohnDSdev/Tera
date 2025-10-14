@@ -1,141 +1,233 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gemini Voice Assistant v1</title>
-<style>
-body{
-  font-family:system-ui, sans-serif;
-  background:#050510;color:#b8e3ff;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  height:100vh;margin:0;text-align:center;
-}
-h2{color:#00ffff;text-shadow:0 0 8px #00e5ff;}
-button{
-  background:#00e5ff;color:#000;border:none;border-radius:6px;
-  padding:10px 18px;margin:8px;font-size:1rem;cursor:pointer;
-  transition:background .2s;
-}
-button:hover{background:#00ffff;}
-#status{margin-top:12px;font-size:1.1rem;color:#9beeff;}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gemini Live Voice Chat (Demo)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 1rem;
+      background: #fafafa;
+    }
+    h1 {
+      text-align: center;
+    }
+    #status {
+      margin: 1rem 0;
+      font-weight: bold;
+    }
+    #log {
+      white-space: pre-wrap;
+      background: #fff;
+      border: 1px solid #ccc;
+      padding: 0.5rem;
+      height: 200px;
+      overflow-y: scroll;
+    }
+    #controls {
+      margin: 1rem 0;
+    }
+    label, input, button {
+      font-size: 1rem;
+    }
+    input[type="password"] {
+      width: 70%;
+      padding: 0.4rem;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      margin-left: 0.5rem;
+    }
+  </style>
 </head>
 <body>
-<h2>Gemini Voice Assistant v1</h2>
-<button id="connectBtn">Connect</button>
-<button id="talkBtn" disabled>Start talking</button>
-<p id="status">Idle</p>
+  <h1>Gemini Live Voice Chat</h1>
+  <div id="status">Idle</div>
+  <div id="controls">
+    <label for="apikey">API Key:</label>
+    <input type="password" id="apikey" placeholder="Enter Gemini key">
+    <button id="btnConnect">Connect & Talk</button>
+    <button id="btnDisconnect" disabled>Disconnect</button>
+  </div>
+  <div id="log"></div>
 
-<script>
-let GEMINI_KEY=null;
-const connectBtn=document.getElementById("connectBtn");
-const talkBtn=document.getElementById("talkBtn");
-const statusEl=document.getElementById("status");
+  <script>
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+    const btnConnect = document.getElementById("btnConnect");
+    const btnDisconnect = document.getElementById("btnDisconnect");
+    const inputApiKey = document.getElementById("apikey");
 
-connectBtn.onclick=()=>{
-  GEMINI_KEY=prompt("Enter your Gemini API key:");
-  if(GEMINI_KEY){
-    talkBtn.disabled=false;
-    statusEl.textContent="Connected ✅";
-  }
-};
+    let socket = null;
+    let audioContext = null;
+    let micStream = null;
+    let processor = null;
 
-// helper to convert Blob→Base64
-function blobToBase64(blob){
-  return new Promise((resolve,reject)=>{
-    const reader=new FileReader();
-    reader.onload=()=>resolve(reader.result.split(',')[1]);
-    reader.onerror=e=>reject(e);
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function recordAudio(){
-  const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-  const mediaRecorder=new MediaRecorder(stream);
-  const chunks=[];
-  statusEl.textContent="🎙 Listening...";
-  return new Promise(resolve=>{
-    mediaRecorder.ondataavailable=e=>chunks.push(e.data);
-    mediaRecorder.start();
-    setTimeout(()=>{
-      mediaRecorder.stop();
-      mediaRecorder.onstop=()=>{
-        const blob=new Blob(chunks,{type:'audio/webm'});
-        stream.getTracks().forEach(t=>t.stop());
-        resolve(blob);
-      };
-    },4000);
-  });
-}
-
-async function geminiSTT(audioBlob){
-  const base64=await blobToBase64(audioBlob);
-  const body={
-    contents:[{
-      role:"user",
-      parts:[{
-        inlineData:{
-          mimeType:"audio/webm", 
-          data:base64
-        }
-      }]
-    }],
-    generationConfig:{responseModalities:["text"]}
-  };
-  const res=await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
-    {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}
-  );
-  const j=await res.json();
-  console.log("STT Response:",j);
-  return j?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()||"";
-}
-
-async function geminiTextGen(prompt){
-  const body={contents:[{role:"user",parts:[{text:prompt}]}]};
-  const res=await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
-    {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}
-  );
-  const j=await res.json();
-  console.log("TextGen:",j);
-  return j?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()||"";
-}
-
-async function geminiTTS(text){
-  const res=await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:speech?key=${GEMINI_KEY}`,
-    {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        input:{text},
-        voice:{languageCode:"en-US"},
-        audioConfig:{audioEncoding:"MP3"}
-      })
+    function log(msg) {
+      console.log(msg);
+      logEl.textContent += msg + "\\n";
+      logEl.scrollTop = logEl.scrollHeight;
     }
-  );
-  const j=await res.json();
-  console.log("TTS:",j);
-  const audio=new Audio("data:audio/mp3;base64,"+j.audioContent);
-  audio.play();
-}
+    function setStatus(s) {
+      statusEl.textContent = s;
+    }
 
-talkBtn.onclick=async()=>{
-  talkBtn.disabled=true;
-  statusEl.textContent="Recording...";
-  const blob=await recordAudio();
-  statusEl.textContent="Processing speech...";
-  const transcript=await geminiSTT(blob);
-  if(!transcript){statusEl.textContent="Didn’t catch that 😅";talkBtn.disabled=false;return;}
-  statusEl.textContent="You said: "+transcript;
-  const reply=await geminiTextGen(transcript);
-  statusEl.textContent="Gemini: "+reply;
-  await geminiTTS(reply);
-  talkBtn.disabled=false;
-};
-</script>
+    btnConnect.onclick = async () => {
+      const key = inputApiKey.value.trim();
+      if (!key) {
+        alert("Please enter your API key");
+        return;
+      }
+      btnConnect.disabled = true;
+      setStatus("Requesting mic...");
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        setStatus("Mic access error");
+        log("Mic error: " + err);
+        btnConnect.disabled = false;
+        return;
+      }
+
+      audioContext = new AudioContext({ sampleRate: 16000 }); // request 16kHz input if possible
+      const source = audioContext.createMediaStreamSource(micStream);
+      processor = audioContext.createScriptProcessor(4096, 1, 1);
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      processor.onaudioprocess = (e) => {
+        const input = e.inputBuffer.getChannelData(0);
+        const pcm16 = float32ToInt16(input);
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+        const msg = {
+          realtimeInput: {
+            mediaChunks: [
+              {
+                data: base64,
+                mimeType: "audio/pcm"
+              }
+            ]
+          }
+        };
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify(msg));
+        }
+      };
+
+      setStatus("Connecting WebSocket...");
+      const wsUrl = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+      // include API key in query param (or may need to use header depending on API)
+      socket = new WebSocket(wsUrl + "?key=" + encodeURIComponent(key));
+      socket.binaryType = "arraybuffer";
+
+      socket.onopen = () => {
+        setStatus("Connected. Sending setup...");
+        log("WebSocket open");
+        const setupMsg = {
+          setup: {
+            model: "gemini-live-2.5-flash-preview-native-audio-09-2025",  // choose appropriate model
+            generationConfig: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                // voice configuration if needed
+              }
+            }
+            // systemInstruction, tools etc can go here
+          }
+        };
+        socket.send(JSON.stringify(setupMsg));
+      };
+
+      socket.onmessage = (evt) => {
+        // All messages are JSON (text). Any audio is inline base64 in JSON.
+        const txt = evt.data;
+        try {
+          const obj = JSON.parse(txt);
+          log("Received: " + JSON.stringify(obj));
+          // Look for server message containing audio
+          if (obj.serverContent && obj.serverContent.modelTurn && obj.serverContent.modelTurn.parts) {
+            for (const part of obj.serverContent.modelTurn.parts) {
+              if (part.inlineData && part.inlineData.data) {
+                const b64 = part.inlineData.data;
+                const audioBytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+                playPCM24(audioBytes.buffer);
+              }
+            }
+          }
+        } catch (err) {
+          log("JSON parse error: " + err + " msg: " + evt.data);
+        }
+      };
+
+      socket.onerror = (err) => {
+        setStatus("Socket error");
+        log("Socket error: " + err);
+      };
+
+      socket.onclose = (evt) => {
+        setStatus("Disconnected");
+        log("Socket closed: " + evt.reason);
+        cleanup();
+      };
+
+      btnDisconnect.disabled = false;
+    };
+
+    btnDisconnect.onclick = () => {
+      if (socket) socket.close();
+      cleanup();
+      setStatus("Idle");
+      btnConnect.disabled = false;
+      btnDisconnect.disabled = true;
+    };
+
+    function cleanup() {
+      if (processor) {
+        processor.disconnect();
+        processor = null;
+      }
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
+      if (micStream) {
+        micStream.getTracks().forEach(t => t.stop());
+        micStream = null;
+      }
+      socket = null;
+    }
+
+    function float32ToInt16(buf) {
+      const l = buf.length;
+      const out = new Int16Array(l);
+      for (let i = 0; i < l; i++) {
+        let s = Math.max(-1, Math.min(1, buf[i]));
+        out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      return out;
+    }
+
+    function playPCM24(arrayBuffer) {
+      // Output from server is 16-bit PCM at 24 kHz (per spec)
+      // Convert 16-bit PCM @24k to Float32, then play
+      if (!audioContext) {
+        audioContext = new AudioContext();
+      }
+      const pcm16 = new Int16Array(arrayBuffer);
+      const float32 = new Float32Array(pcm16.length);
+      for (let i = 0; i < pcm16.length; i++) {
+        float32[i] = pcm16[i] / 32768;
+      }
+      // Create AudioBuffer at 24000 Hz
+      const buf = audioContext.createBuffer(1, float32.length, 24000);
+      buf.copyToChannel(float32, 0);
+      const src = audioContext.createBufferSource();
+      src.buffer = buf;
+      src.connect(audioContext.destination);
+      src.start();
+    }
+  </script>
 </body>
 </html>
