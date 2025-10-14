@@ -3,130 +3,122 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hologram AI Voice Chat</title>
+<title>Gemini Live Hologram</title>
 <style>
 body {
-  margin: 0;
-  height: 100vh;
-  background: #050510;
-  color: #7df;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-family: monospace;
+  background:#050510;
+  color:#7df;
+  font-family:monospace;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  height:100vh;
+  margin:0;
 }
 #avatar {
-  width: 64px;
-  height: 128px;
-  image-rendering: pixelated;
-  filter: drop-shadow(0 0 8px #0ff);
-  opacity: 0;
-  transition: opacity 0.3s ease;
+  width:64px;height:128px;
+  image-rendering:pixelated;
+  filter:drop-shadow(0 0 8px #0ff);
+  opacity:0;
+  transition:opacity 1s ease;
 }
-#status {
-  margin-bottom: 8px;
+#status{margin:8px}
+button{
+  margin:5px;
+  padding:8px 16px;
+  border:none;
+  border-radius:5px;
+  background:#0ff;
+  color:#000;
+  font-weight:bold;
+  cursor:pointer;
 }
-button {
-  margin: 5px;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 5px;
-  font-weight: bold;
-  cursor: pointer;
-  background: #0ff;
-  color: #000;
-}
-button:disabled { opacity: 0.4; }
+button:disabled{opacity:.4}
 </style>
 </head>
 <body>
 <div id="status">Status: idle</div>
-<img id="avatar" alt="avatar" src="arm_behind_mouth_closed.png">
+<img id="avatar" src="arm_behind_mouth_closed.png" alt="avatar">
 <div>
   <button id="connect">Connect</button>
-  <button id="talk" disabled>Hold to Talk</button>
   <button id="end" disabled>End</button>
 </div>
 
 <script type="module">
 import { GoogleGenAI, Modality } from "https://aistudiocdn.com/@google/genai@1.24.0";
 
-const avatar = document.getElementById("avatar");
-const statusEl = document.getElementById("status");
-const connectBtn = document.getElementById("connect");
-const talkBtn = document.getElementById("talk");
-const endBtn = document.getElementById("end");
+const avatar=document.getElementById("avatar");
+const statusEl=document.getElementById("status");
+const connectBtn=document.getElementById("connect");
+const endBtn=document.getElementById("end");
 
-const frames = {
-  armClosed: "arm_out_mouth_closed.png",
-  armOpen: "arm_out_mouth_open.png",
-  backClosed: "arm_behind_mouth_closed.png",
-  backOpen: "arm_behind_mouth_open.png"
+const frames={
+  armClosed:"arm_out_mouth_closed.png",
+  armOpen:"arm_out_mouth_open.png",
+  backClosed:"arm_behind_mouth_closed.png",
+  backOpen:"arm_behind_mouth_open.png"
 };
-const startupFrames = ["a1.png","a2.png","a3.png","a4.png","a5.png","a6.png","a7.png"];
 
-let ai, session, micStream;
-let inCtx, outCtx, analyser;
-let recording = false;
-let pose = 0;
-let mouthTimer;
-let startupDone = false;
+let ai,session,inCtx,outCtx,analyser,micStream;
+let mouthTimer,pose=0,isSpeaking=false;
 
-function setStatus(t){ statusEl.textContent = "Status: " + t; }
-
+function setStatus(t){statusEl.textContent="Status: "+t;}
 function setFrame(open){
-  if (pose === 0)
-    avatar.src = open ? frames.backOpen : frames.backClosed;
-  else
-    avatar.src = open ? frames.armOpen : frames.armClosed;
+  if(pose===0)avatar.src=open?frames.backOpen:frames.backClosed;
+  else avatar.src=open?frames.armOpen:frames.armClosed;
 }
 
-function startupAnimation(){
-  let i = 0;
-  avatar.style.opacity = 1;
-  const next = () => {
-    if (i < startupFrames.length) {
-      avatar.src = startupFrames[i++];
-      setTimeout(next, 90);
-    } else {
-      startupDone = true;
-      setFrame(false);
-    }
-  };
-  next();
+// === Mouth movement ===
+function startMouth(){
+  if(mouthTimer)return;
+  mouthTimer=setInterval(()=>{
+    const arr=new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteTimeDomainData(arr);
+    let sum=0;for(let i=0;i<arr.length;i++){let f=(arr[i]-128)/128;sum+=f*f;}
+    const rms=Math.sqrt(sum/arr.length);
+    const open=rms>0.02;
+    if(rms>0.05)pose=pose?0:1;
+    setFrame(open);
+  },80);
 }
+function stopMouth(){clearInterval(mouthTimer);mouthTimer=null;setFrame(false);}
 
-connectBtn.onclick = async () => {
-  const key = prompt("Enter Gemini API key:");
-  if(!key) return setStatus("No API key");
+// === Main connection ===
+connectBtn.onclick=async()=>{
+  const key=prompt("Enter your Gemini API key:");
+  if(!key)return;
   setStatus("Connecting...");
-  ai = new GoogleGenAI({ apiKey: key });
-  inCtx = new AudioContext({sampleRate:16000});
-  outCtx = new AudioContext({sampleRate:24000});
-  analyser = outCtx.createAnalyser();
-  analyser.connect(outCtx.destination);
-  micStream = await navigator.mediaDevices.getUserMedia({audio:true});
-  const src = inCtx.createMediaStreamSource(micStream);
-  const proc = inCtx.createScriptProcessor(4096,1,1);
-  src.connect(proc); proc.connect(inCtx.destination);
+  ai=new GoogleGenAI({apiKey:key});
 
-  session = await ai.live.connect({
+  inCtx=new AudioContext({sampleRate:16000});
+  outCtx=new AudioContext({sampleRate:24000});
+  analyser=outCtx.createAnalyser();
+  analyser.connect(outCtx.destination);
+
+  micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  const micSrc=inCtx.createMediaStreamSource(micStream);
+  const proc=inCtx.createScriptProcessor(4096,1,1);
+  micSrc.connect(proc);
+  proc.connect(inCtx.destination);
+
+  session=await ai.live.connect({
     model:"gemini-2.5-flash-native-audio-preview-09-2025",
     callbacks:{
-      onopen:()=>setStatus("Connected"),
-      onmessage:handleMsg,
+      onopen:()=>{setStatus("Connected");avatar.style.opacity=1;startStreaming();},
+      onmessage:onMessage,
       onerror:e=>setStatus("Error: "+e.message),
       onclose:()=>setStatus("Closed")
     },
     config:{
       responseModalities:[Modality.AUDIO],
-      speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:"Zephyr"}}}
+      speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:"Zephyr"}}},
+      systemInstruction:"You are a conversational AI hologram. Speak naturally and keep messages short."
     }
   });
 
-  proc.onaudioprocess = e=>{
-    if(!recording)return;
+  // Stream microphone continuously
+  proc.onaudioprocess=e=>{
     const d=e.inputBuffer.getChannelData(0);
     const i16=new Int16Array(d.length);
     for(let i=0;i<d.length;i++)i16[i]=d[i]*32768;
@@ -134,64 +126,58 @@ connectBtn.onclick = async () => {
     session.sendRealtimeInput({media:{data:b64,mimeType:"audio/pcm;rate=16000"}});
   };
 
-  connectBtn.disabled = true;
-  talkBtn.disabled = false;
-  endBtn.disabled = false;
-  avatar.src = frames.backClosed;
-  avatar.style.opacity = 0.3;
-};
-
-function handleMsg(msg){
-  const data = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-  if(!data)return;
-  const bytes = Uint8Array.from(atob(data),c=>c.charCodeAt(0));
-  const int16 = new Int16Array(bytes.buffer);
-  const buf = outCtx.createBuffer(1,int16.length,24000);
-  const ch = buf.getChannelData(0);
-  for(let i=0;i<int16.length;i++) ch[i]=int16[i]/32768;
-  const src = outCtx.createBufferSource();
-  src.buffer=buf; src.connect(analyser);
-  src.start();
-  startMouth();
-  src.onended = stopMouth;
-}
-
-function startMouth(){
-  if(!startupDone){startupAnimation();}
-  if(mouthTimer)return;
-  mouthTimer=setInterval(()=>{
-    const arr=new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteTimeDomainData(arr);
-    let sum=0;
-    for(let i=0;i<arr.length;i++){const f=(arr[i]-128)/128; sum+=f*f;}
-    const rms=Math.sqrt(sum/arr.length);
-    const open=rms>0.02;
-    if(rms>0.05) pose=pose?0:1;
-    setFrame(open);
-  },100);
-}
-function stopMouth(){
-  if(mouthTimer){clearInterval(mouthTimer);mouthTimer=null;}
-  setFrame(false);
-}
-
-talkBtn.onmousedown=()=>{
-  recording=true;
+  connectBtn.disabled=true;
+  endBtn.disabled=false;
   setStatus("Listening...");
-  if(!startupDone)startupAnimation();
 };
-talkBtn.onmouseup=()=>{
-  recording=false;
-  setStatus("Processing...");
-};
-talkBtn.ontouchstart=talkBtn.onmousedown;
-talkBtn.ontouchend=talkBtn.onmouseup;
 
+// === Audio streaming playback ===
+let playing=false;
+function onMessage(msg){
+  const data=msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+  if(!data)return;
+  const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));
+  const int16=new Int16Array(bytes.buffer);
+  const buf=outCtx.createBuffer(1,int16.length,24000);
+  const ch=buf.getChannelData(0);
+  for(let i=0;i<int16.length;i++)ch[i]=int16[i]/32768;
+  playBuffer(buf);
+}
+
+async function playBuffer(buf){
+  try{
+    const src=outCtx.createBufferSource();
+    src.buffer=buf;
+    src.connect(analyser);
+    if(outCtx.state==="suspended")await outCtx.resume();
+    src.start();
+    isSpeaking=true;
+    startMouth();
+    src.onended=()=>{
+      isSpeaking=false;
+      stopMouth();
+    };
+  }catch(e){console.warn("playback skipped",e);}
+}
+
+// === Periodic keepalive / stability ===
+function startStreaming(){
+  // Keeps the connection alive by periodic null sends
+  setInterval(()=>{
+    if(session && !isSpeaking){
+      session.sendRealtimeInput({text:""});
+    }
+  },10000);
+}
+
+// === End ===
 endBtn.onclick=()=>{
   setStatus("Ended");
-  if(session) session.close();
-  if(micStream) micStream.getTracks().forEach(t=>t.stop());
-  talkBtn.disabled=true; endBtn.disabled=true;
+  if(session)session.close();
+  if(micStream)micStream.getTracks().forEach(t=>t.stop());
+  connectBtn.disabled=false;
+  endBtn.disabled=true;
+  stopMouth();
 };
 </script>
 </body>
