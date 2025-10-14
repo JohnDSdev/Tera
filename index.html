@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gemini Live Hologram – Smooth + Voices</title>
+<title>Gemini Live Hologram – Anti-Flicker</title>
 <style>
 body{
   background:#050510;color:#7df;font-family:monospace;
@@ -60,8 +60,9 @@ const frames={
 };
 
 let ai,session,micStream,inCtx,outCtx,analyser;
-let mouthTimer,pose=0;
-let nextStartTime=0,queueLen=0,closing=false;
+let mouthRAF=null,pose=0,closing=false;
+let nextStartTime=0,queueLen=0;
+let smoothRMS=0;
 
 function setStatus(t){statusEl.textContent="Status: "+t;}
 function setFrame(open){
@@ -69,32 +70,43 @@ function setFrame(open){
   else avatar.src=open?frames.armOpen:frames.armClosed;
 }
 
-// --- Mouth animation ---
+/* ====== MOUTH ANIMATION (non-blocking) ====== */
 function startMouth(){
-  if(mouthTimer)return;
-  mouthTimer=setInterval(()=>{
-    if(!analyser)return;
-    const arr=new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteTimeDomainData(arr);
-    let sum=0;for(let i=0;i<arr.length;i++){let f=(arr[i]-128)/128;sum+=f*f;}
-    const rms=Math.sqrt(sum/arr.length);
-    const open=rms>0.02;
-    if(rms>0.05)pose=pose?0:1;
+  if(mouthRAF) return;
+  const buffer=new Uint8Array(analyser.fftSize);
+  const animate=()=>{
+    analyser.getByteTimeDomainData(buffer);
+    let sum=0;
+    for(let i=0;i<buffer.length;i++){
+      const f=(buffer[i]-128)/128; sum+=f*f;
+    }
+    const rms=Math.sqrt(sum/buffer.length);
+    smoothRMS=0.85*smoothRMS+0.15*rms; // smoothing filter
+    const open=smoothRMS>0.02;
+    if(smoothRMS>0.05)pose=pose?0:1;
     setFrame(open);
-  },70);
+    mouthRAF=requestAnimationFrame(animate);
+  };
+  mouthRAF=requestAnimationFrame(animate);
 }
-function stopMouth(){clearInterval(mouthTimer);mouthTimer=null;setFrame(false);}
+function stopMouth(){
+  if(mouthRAF){cancelAnimationFrame(mouthRAF);mouthRAF=null;}
+  setFrame(false);
+}
 
-// --- Connect ---
+/* ====== CONNECT ====== */
 connectBtn.onclick=async()=>{
   if(session){setStatus("Already connected.");return;}
   closing=false;
   const key=prompt("Enter your Gemini API key:"); if(!key)return;
+  const chosenVoice=voiceSel.value;
   setStatus("Connecting...");
   ai=new GoogleGenAI({apiKey:key});
   inCtx=new AudioContext({sampleRate:16000});
-  outCtx=new AudioContext({}); // use native rate for smoother resample
-  analyser=outCtx.createAnalyser(); analyser.connect(outCtx.destination);
+  outCtx=new AudioContext({});
+  analyser=outCtx.createAnalyser();
+  analyser.fftSize=512;
+  analyser.connect(outCtx.destination);
 
   try{micStream=await navigator.mediaDevices.getUserMedia({audio:true});}
   catch(e){setStatus("Mic permission denied");return;}
@@ -102,8 +114,6 @@ connectBtn.onclick=async()=>{
   const micSrc=inCtx.createMediaStreamSource(micStream);
   const proc=inCtx.createScriptProcessor(4096,1,1);
   micSrc.connect(proc);proc.connect(inCtx.destination);
-
-  const chosenVoice=voiceSel.value;
 
   session=await ai.live.connect({
     model:"gemini-2.5-flash-native-audio-preview-09-2025",
@@ -116,7 +126,7 @@ connectBtn.onclick=async()=>{
     config:{
       responseModalities:[Modality.AUDIO],
       speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:chosenVoice}}},
-      systemInstruction:"You are a calm, natural holographic AI that speaks clearly and continuously."
+      systemInstruction:"You are a natural, single holographic AI voice. Avoid overlapping playback."
     }
   });
 
@@ -133,8 +143,7 @@ connectBtn.onclick=async()=>{
   setStatus("Live voice chat ready.");
 };
 
-// --- Smoothed sequential playback ---
-const fadeMs=0.04; // 40 ms overlap
+/* ====== AUDIO QUEUE (anti-flicker) ====== */
 function onMessage(msg){
   const data=msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
   if(!data||!outCtx)return;
@@ -144,39 +153,29 @@ function onMessage(msg){
   const ch=buf.getChannelData(0);
   for(let i=0;i<int16.length;i++)ch[i]=int16[i]/32768;
 
-  // small crossfade to avoid clicks
-  const fadeSamples=Math.floor(fadeMs*buf.sampleRate);
-  for(let i=0;i<fadeSamples;i++){
-    const f=i/fadeSamples;
-    ch[i]*=f;                        // fade-in
-    ch[ch.length-1-i]*=f;            // fade-out
+  // Lightweight fade to remove clicks
+  const fade=0.03; const fS=Math.floor(fade*buf.sampleRate);
+  for(let i=0;i<fS;i++){
+    const x=i/fS; ch[i]*=x; ch[ch.length-1-i]*=x;
   }
 
-  if(queueLen>3){nextStartTime=outCtx.currentTime;queueLen=0;}
+  // simple sequential scheduler with drift correction
+  const now=outCtx.currentTime;
+  if(Math.abs(nextStartTime-now)>0.3) nextStartTime=now;
+  const startAt=Math.max(now,nextStartTime);
+  nextStartTime=startAt+buf.duration-0.01;
+
   const src=outCtx.createBufferSource();
   src.buffer=buf; src.connect(analyser);
-
-  // drift correction
-  const now=outCtx.currentTime;
-  if(nextStartTime<now-0.05||nextStartTime>now+0.3){nextStartTime=now;}
-
-  const startAt=Math.max(now,nextStartTime);
-  nextStartTime=startAt+buf.duration-fadeMs;
-  queueLen+=buf.duration;
-
-  if(outCtx.state==="suspended")outCtx.resume();
+  if(outCtx.state==="suspended") outCtx.resume();
   src.start(startAt);
   startMouth();
-  src.onended=()=>{
-    queueLen=Math.max(0,queueLen-buf.duration);
-    if(queueLen<=0)stopMouth();
-  };
+  src.onended=()=>stopMouth();
 }
 
-// --- End / cleanup ---
+/* ====== END / CLEANUP ====== */
 endBtn.onclick=()=>{
-  closing=true;
-  setStatus("Closing...");
+  closing=true; setStatus("Closing...");
   if(session){try{session.close();}catch{} session=null;}
   if(micStream)micStream.getTracks().forEach(t=>t.stop());
   if(inCtx)inCtx.close(); if(outCtx)outCtx.close();
