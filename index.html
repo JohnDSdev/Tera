@@ -1,25 +1,38 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Gemini Live Hologram – Stable Playback</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gemini Live Hologram</title>
 <style>
 html,body{
-  height:100%;margin:0;background:#050510;color:#7df;
-  font-family:monospace;display:flex;flex-direction:column;
+  height:100%;margin:0;
+  background:radial-gradient(circle at center,#02030a 0%,#000 100%);
+  color:#7df;font-family:monospace;
+  display:flex;flex-direction:column;
   align-items:center;justify-content:center;overflow:hidden;
 }
 #avatar{
-  height:70vh;aspect-ratio:1/2; /* keeps correct proportion */
+  height:85vh;aspect-ratio:1/2;
   image-rendering:pixelated;
-  filter:drop-shadow(0 0 10px #0ff);
-  opacity:0;transition:opacity 1s ease;
+  filter:
+    drop-shadow(0 0 4px #00ffff)
+    drop-shadow(0 0 12px #00ffff)
+    brightness(1.6)
+    contrast(1.2);
+  opacity:0;
+  animation:holoStart 1.2s ease forwards;
+}
+@keyframes holoStart{
+  0%{opacity:0;transform:scaleY(0.2) translateY(20vh) skewY(-5deg);}
+  70%{opacity:1;transform:scaleY(1.05) translateY(0) skewY(1deg);}
+  100%{opacity:1;transform:scaleY(1) skewY(0);}
 }
 #status{margin:8px}
 button,select{
   margin:5px;padding:8px 14px;border:none;border-radius:5px;
   background:#0ff;color:#000;font-weight:bold;cursor:pointer;
+  box-shadow:0 0 10px #0ff66a inset,0 0 10px #0ff;
 }
 button:disabled{opacity:.4}
 select{font-weight:600}
@@ -59,23 +72,24 @@ const connectBtn=document.getElementById("connect");
 const endBtn=document.getElementById("end");
 const voiceSel=document.getElementById("voice");
 
-let ai,session,inCtx,outCtx,analyser,splitter;
-let micStream,playing=false,closing=false;
+let ai,session,inCtx,outCtx,analyser;
+let micStream,closing=false,playing=false;
 let pose=0,smoothRMS=0,mouthRAF=null;
-let currentSrc=null; // only one active source
+
 function setStatus(t){statusEl.textContent="Status: "+t;}
 function setFrame(open){
   if(pose===0)avatar.src=open?frames.backOpen:frames.backClosed;
   else avatar.src=open?frames.armOpen:frames.armClosed;
 }
 
-/* ======= Mouth animation (decoupled) ======= */
+/* ---- Mouth animation ---- */
 function startMouth(){
   if(mouthRAF)return;
   const buf=new Uint8Array(analyser.fftSize);
   const step=()=>{
     analyser.getByteTimeDomainData(buf);
-    let sum=0;for(let i=0;i<buf.length;i++){const f=(buf[i]-128)/128;sum+=f*f;}
+    let sum=0;
+    for(let i=0;i<buf.length;i++){const f=(buf[i]-128)/128;sum+=f*f;}
     const rms=Math.sqrt(sum/buf.length);
     smoothRMS=0.9*smoothRMS+0.1*rms;
     const open=smoothRMS>0.025;
@@ -90,7 +104,7 @@ function stopMouth(){
   setFrame(false);
 }
 
-/* ======= Connect ======= */
+/* ---- Connect ---- */
 connectBtn.onclick=async()=>{
   if(session){setStatus("Already connected");return;}
   const key=prompt("Enter your Gemini API key:"); if(!key)return;
@@ -100,11 +114,9 @@ connectBtn.onclick=async()=>{
   inCtx=new AudioContext({sampleRate:16000});
   outCtx=new AudioContext({});
   analyser=outCtx.createAnalyser(); analyser.fftSize=512;
-  splitter=outCtx.createChannelSplitter(1);
-  analyser.connect(outCtx.destination);
 
   try{micStream=await navigator.mediaDevices.getUserMedia({audio:true});}
-  catch(e){setStatus("Mic denied");return;}
+  catch(e){setStatus("Mic permission denied");return;}
 
   const micSrc=inCtx.createMediaStreamSource(micStream);
   const proc=inCtx.createScriptProcessor(4096,1,1);
@@ -113,7 +125,7 @@ connectBtn.onclick=async()=>{
   session=await ai.live.connect({
     model:"gemini-2.5-flash-native-audio-preview-09-2025",
     callbacks:{
-      onopen:()=>{setStatus("Connected");avatar.style.opacity=1;},
+      onopen:()=>{setStatus("Listening...");avatar.style.opacity=1;},
       onmessage:onMessage,
       onerror:e=>setStatus("Error: "+e.message),
       onclose:()=>{if(!closing)setStatus("Closed");session=null;}
@@ -121,7 +133,7 @@ connectBtn.onclick=async()=>{
     config:{
       responseModalities:[Modality.AUDIO],
       speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:chosenVoice}}},
-      systemInstruction:"You are a single, coherent holographic voice. Speak continuously and do not overlap responses."
+      systemInstruction:"Speak naturally in one continuous response; do not overlap or echo yourself."
     }
   });
 
@@ -135,14 +147,13 @@ connectBtn.onclick=async()=>{
   };
 
   connectBtn.disabled=true; endBtn.disabled=false;
-  setStatus("Listening...");
 };
 
-/* ======= Serial playback ======= */
+/* ---- Playback (one at a time) ---- */
 function onMessage(msg){
   const data=msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-  if(!data||!outCtx)return;
-  if(playing) return; // drop new chunks until current finishes
+  if(!data||!outCtx||playing) return;
+  playing=true;
 
   const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));
   const int16=new Int16Array(bytes.buffer);
@@ -157,11 +168,9 @@ function onMessage(msg){
   src.buffer=buf;
   const gain=outCtx.createGain();
   src.connect(gain);
-  gain.connect(splitter);
-  splitter.connect(analyser);
+  gain.connect(analyser);
   gain.connect(outCtx.destination);
 
-  playing=true;
   if(outCtx.state==="suspended")outCtx.resume();
   startMouth();
   src.start();
@@ -171,7 +180,7 @@ function onMessage(msg){
   };
 }
 
-/* ======= End ======= */
+/* ---- End ---- */
 endBtn.onclick=()=>{
   closing=true;
   if(session){try{session.close();}catch{} session=null;}
