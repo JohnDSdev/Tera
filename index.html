@@ -3,24 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gemini Live Hologram – Real-time Continuous</title>
+<title>Gemini Live Hologram – vStatic+Transparent</title>
 <style>
 html,body{
   height:100%;margin:0;
-  background:radial-gradient(circle at center,#02030a 0%,#000 100%);
+  background:#000;
   color:#7df;font-family:monospace;
   display:flex;flex-direction:column;
-  align-items:center;justify-content:center;overflow:hidden;
+  align-items:center;justify-content:center;
+  overflow:hidden;
 }
 #avatar{
-  height:85vh;aspect-ratio:1/2;
+  height:85vh;
+  aspect-ratio:1/2;
   image-rendering:pixelated;
   filter:
-    drop-shadow(0 0 6px #00ffff)
+    brightness(2.2)
+    contrast(3)
+    hue-rotate(180deg)
+    drop-shadow(0 0 5px #00ffff)
     drop-shadow(0 0 15px #00ffff)
-    brightness(1.5)
-    contrast(1.2);
-  opacity:0;transition:opacity 1s ease;
+    saturate(3);
+  mix-blend-mode:screen;
+  opacity:0;
+  transition:opacity 1s ease;
 }
 @keyframes holoIn{
   0%{opacity:0;transform:scaleY(0.3) translateY(20vh) skewY(-3deg);}
@@ -44,12 +50,7 @@ select{font-weight:600}
   <select id="voice">
     <option value="Zephyr">Zephyr</option>
     <option value="Aria">Aria</option>
-    <option value="Breeze">Breeze</option>
     <option value="Nova" selected>Nova</option>
-    <option value="Orbit">Orbit</option>
-    <option value="Solstice">Solstice</option>
-    <option value="Sable">Sable</option>
-    <option value="Dune">Dune</option>
   </select>
   <button id="connect">Connect</button>
   <button id="end" disabled>End</button>
@@ -58,6 +59,12 @@ select{font-weight:600}
 <script type="module">
 import { GoogleGenAI, Modality } from "https://aistudiocdn.com/@google/genai@1.24.0";
 
+const avatar=document.getElementById("avatar");
+const statusEl=document.getElementById("status");
+const connectBtn=document.getElementById("connect");
+const endBtn=document.getElementById("end");
+const voiceSel=document.getElementById("voice");
+
 const frames={
   armClosed:"arm_out_mouth_closed.png",
   armOpen:"arm_out_mouth_open.png",
@@ -65,47 +72,39 @@ const frames={
   backOpen:"arm_behind_mouth_open.png"
 };
 
-const avatar=document.getElementById("avatar");
-const statusEl=document.getElementById("status");
-const connectBtn=document.getElementById("connect");
-const endBtn=document.getElementById("end");
-const voiceSel=document.getElementById("voice");
-
 let ai,session,inCtx,outCtx,analyser;
 let micStream,closing=false;
 let pose=0,smoothRMS=0,mouthRAF=null;
-let nextStart=0;
 
-/* ---------- Display helpers ---------- */
+/* --- Status + Avatar Control --- */
 function setStatus(t){statusEl.textContent="Status: "+t;}
 function setFrame(open){
   if(pose===0)avatar.src=open?frames.backOpen:frames.backClosed;
   else avatar.src=open?frames.armOpen:frames.armClosed;
 }
 
-/* ---------- Mouth animation ---------- */
+/* --- Mouth Animation --- */
 function startMouth(){
   if(mouthRAF)return;
   const buf=new Uint8Array(analyser.fftSize);
-  const step=()=>{
+  const animate=()=>{
     analyser.getByteTimeDomainData(buf);
-    let sum=0;
-    for(let i=0;i<buf.length;i++){const f=(buf[i]-128)/128;sum+=f*f;}
+    let sum=0;for(let i=0;i<buf.length;i++){const f=(buf[i]-128)/128;sum+=f*f;}
     const rms=Math.sqrt(sum/buf.length);
     smoothRMS=0.9*smoothRMS+0.1*rms;
     const open=smoothRMS>0.025;
     if(smoothRMS>0.055)pose=pose?0:1;
     setFrame(open);
-    mouthRAF=requestAnimationFrame(step);
+    mouthRAF=requestAnimationFrame(animate);
   };
-  mouthRAF=requestAnimationFrame(step);
+  mouthRAF=requestAnimationFrame(animate);
 }
 function stopMouth(){
   if(mouthRAF){cancelAnimationFrame(mouthRAF);mouthRAF=null;}
   setFrame(false);
 }
 
-/* ---------- Connect ---------- */
+/* --- Connect --- */
 connectBtn.onclick=async()=>{
   if(session){setStatus("Already connected");return;}
   const key=prompt("Enter your Gemini API key:"); if(!key)return;
@@ -126,15 +125,15 @@ connectBtn.onclick=async()=>{
   session=await ai.live.connect({
     model:"gemini-2.5-flash-native-audio-preview-09-2025",
     callbacks:{
-      onopen:()=>{setStatus("Listening...");avatar.style.animation="holoIn 1.2s ease forwards";},
-      onmessage:onStreamMessage,
+      onopen:()=>{setStatus("Listening...");avatar.style.animation="holoIn 1.2s ease forwards";avatar.style.opacity=1;},
+      onmessage:onStream,
       onerror:e=>setStatus("Error: "+e.message),
       onclose:()=>{if(!closing)setStatus("Closed");session=null;}
     },
     config:{
       responseModalities:[Modality.AUDIO],
       speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:chosenVoice}}},
-      systemInstruction:"Respond in a single continuous stream of speech. Do not restart or overlap previous audio."
+      systemInstruction:"Speak naturally and continuously, streaming your voice. Ignore self interruptions."
     }
   });
 
@@ -150,21 +149,15 @@ connectBtn.onclick=async()=>{
   connectBtn.disabled=true; endBtn.disabled=false;
 };
 
-/* ---------- Streaming Playback (continuous) ---------- */
-function onStreamMessage(msg){
+/* --- Continuous Playback (fast/static-like) --- */
+function onStream(msg){
   const part=msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
   if(!part||!outCtx)return;
-
   const bytes=Uint8Array.from(atob(part),c=>c.charCodeAt(0));
   const int16=new Int16Array(bytes.buffer);
   const buf=outCtx.createBuffer(1,int16.length,24000);
   const ch=buf.getChannelData(0);
   for(let i=0;i<int16.length;i++)ch[i]=int16[i]/32768;
-
-  // 25ms crossfade to reduce static
-  const fade=0.025,fs=Math.floor(fade*buf.sampleRate);
-  for(let i=0;i<fs;i++){const x=i/fs;ch[i]*=x;ch[ch.length-1-i]*=x;}
-
   const src=outCtx.createBufferSource();
   src.buffer=buf;
   const gain=outCtx.createGain();
@@ -173,18 +166,13 @@ function onStreamMessage(msg){
   gain.connect(split);
   split.connect(analyser);
   gain.connect(outCtx.destination);
-
-  const now=outCtx.currentTime;
-  if(nextStart<now) nextStart=now;
-  src.start(nextStart);
-  nextStart+=buf.duration-fade; // small overlap
-
-  if(outCtx.state==="suspended") outCtx.resume();
+  if(outCtx.state==="suspended")outCtx.resume();
   startMouth();
-  src.onended=()=>{if(outCtx.currentTime>=nextStart-0.1)stopMouth();};
+  src.start();
+  src.onended=()=>{stopMouth();};
 }
 
-/* ---------- End ---------- */
+/* --- End --- */
 endBtn.onclick=()=>{
   closing=true;
   if(session){try{session.close();}catch{} session=null;}
