@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gemini Live Hologram – Stable Transparent</title>
+<title>Gemini Live Hologram v3</title>
 <style>
 html,body{
   height:100%;margin:0;
@@ -17,10 +17,7 @@ html,body{
   height:85vh;
   aspect-ratio:1/2;
   image-rendering:pixelated;
-  filter:
-    drop-shadow(0 0 5px #00ffff)
-    drop-shadow(0 0 15px #00ffff)
-    drop-shadow(0 0 30px #00ffff);
+  filter:drop-shadow(0 0 10px #00ffff) drop-shadow(0 0 25px #00ffff);
   opacity:0;transition:opacity 1s ease;
 }
 #status{margin:8px}
@@ -38,9 +35,9 @@ select{font-weight:600}
 <img id="avatar" src="" alt="avatar">
 <div>
   <select id="voice">
+    <option value="Nova" selected>Nova</option>
     <option value="Zephyr">Zephyr</option>
     <option value="Aria">Aria</option>
-    <option value="Nova" selected>Nova</option>
   </select>
   <button id="connect">Connect</button>
   <button id="end" disabled>End</button>
@@ -49,50 +46,51 @@ select{font-weight:600}
 <script type="module">
 import { GoogleGenAI, Modality } from "https://aistudiocdn.com/@google/genai@1.24.0";
 
+const API_KEY = "AIzaSyArk8ESeNA4j5Fz7gAO3jUL1--JH5OHsSs"; // normal Gemini key
+
 const avatar=document.getElementById("avatar");
 const statusEl=document.getElementById("status");
 const connectBtn=document.getElementById("connect");
 const endBtn=document.getElementById("end");
 const voiceSel=document.getElementById("voice");
 
-// Load and convert all PNGs into transparent cyan
-const frameFiles={
+const files={
   armClosed:"arm_out_mouth_closed.png",
   armOpen:"arm_out_mouth_open.png",
   backClosed:"arm_behind_mouth_closed.png",
   backOpen:"arm_behind_mouth_open.png"
 };
 const frames={};
-for(const [key,file] of Object.entries(frameFiles)){
-  const img=new Image(); img.src=file; await img.decode();
-  const c=document.createElement("canvas");
-  c.width=img.width; c.height=img.height;
-  const ctx=c.getContext("2d");
-  ctx.drawImage(img,0,0);
-  const d=ctx.getImageData(0,0,c.width,c.height);
-  for(let i=0;i<d.data.length;i+=4){
-    const r=d.data[i],g=d.data[i+1],b=d.data[i+2];
-    if(r>230 && g>230 && b>230){ // make white transparent
-      d.data[i+3]=0;
-    } else {
-      // tint to cyan
-      d.data[i]=0; d.data[i+1]=255; d.data[i+2]=255;
+
+/* ---- make white transparent and tint cyan ---- */
+async function preprocessImages(){
+  for(const [k,src] of Object.entries(files)){
+    const img=new Image(); img.src=src; await img.decode();
+    const c=document.createElement("canvas"); c.width=img.width; c.height=img.height;
+    const ctx=c.getContext("2d");
+    ctx.drawImage(img,0,0);
+    const d=ctx.getImageData(0,0,c.width,c.height);
+    for(let i=0;i<d.data.length;i+=4){
+      const r=d.data[i],g=d.data[i+1],b=d.data[i+2];
+      if(r>230&&g>230&&b>230){ d.data[i+3]=0; } // white -> transparent
+      else{ d.data[i]=0; d.data[i+1]=255; d.data[i+2]=255; } // cyan
     }
+    ctx.putImageData(d,0,0);
+    frames[k]=c.toDataURL();
   }
-  ctx.putImageData(d,0,0);
-  frames[key]=c.toDataURL();
+  avatar.src=frames.backClosed;
 }
+await preprocessImages();
 
-let ai,session,inCtx,outCtx,analyser;
-let micStream,closing=false;
-let pose=0,smoothRMS=0,mouthRAF=null;
+let ai,session,inCtx,outCtx,analyser,workletNode;
+let micStream,closing=false,pose=0,smoothRMS=0,mouthRAF=null;
 
+/* ---- helpers ---- */
 function setStatus(t){statusEl.textContent="Status: "+t;}
 function setFrame(open){
   if(pose===0)avatar.src=open?frames.backOpen:frames.backClosed;
   else avatar.src=open?frames.armOpen:frames.armClosed;
 }
-
 function startMouth(){
   if(mouthRAF)return;
   const buf=new Uint8Array(analyser.fftSize);
@@ -110,12 +108,25 @@ function startMouth(){
 }
 function stopMouth(){if(mouthRAF){cancelAnimationFrame(mouthRAF);mouthRAF=null;}setFrame(false);}
 
+/* ---- fetch ephemeral token ---- */
+async function getEphemeralToken(){
+  const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-native-audio-preview-09-2025:token?key="+API_KEY,{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({})
+  });
+  if(!resp.ok) throw new Error("Token request failed: "+resp.status);
+  const j=await resp.json();
+  return j.clientToken;
+}
+
+/* ---- connect ---- */
 connectBtn.onclick=async()=>{
   if(session){setStatus("Already connected");return;}
-  const key=prompt("Enter your Gemini API key:"); if(!key)return;
   const chosenVoice=voiceSel.value;
-  setStatus("Connecting...");
-  ai=new GoogleGenAI({apiKey:key});
+  setStatus("Fetching token...");
+  const token=await getEphemeralToken();
+
+  ai=new GoogleGenAI({apiKey:API_KEY});
   inCtx=new AudioContext({sampleRate:16000});
   outCtx=new AudioContext({});
   analyser=outCtx.createAnalyser(); analyser.fftSize=512;
@@ -124,45 +135,50 @@ connectBtn.onclick=async()=>{
   catch(e){setStatus("Mic permission denied");return;}
 
   const micSrc=inCtx.createMediaStreamSource(micStream);
-  const proc=inCtx.createScriptProcessor(4096,1,1);
-  micSrc.connect(proc);proc.connect(inCtx.destination);
 
-  try{
-    session=await ai.live.connect({
-      model:"gemini-2.5-flash-native-audio-preview-09-2025",
-      callbacks:{
-        onopen:()=>{setStatus("Listening...");avatar.style.opacity=1;},
-        onmessage:onStream,
-        onerror:e=>setStatus("Error: "+e.message),
-        onclose:()=>{if(!closing){setStatus("Closed – retrying..."); setTimeout(connectBtn.onclick,2000);}session=null;}
-      },
-      config:{
-        responseModalities:[Modality.AUDIO],
-        speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:chosenVoice}}},
-        systemInstruction:"Stream audio continuously and do not self-interrupt."
+  // AudioWorklet replacement
+  await inCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([`
+    class MicWorklet extends AudioWorkletProcessor {
+      process(inputs){ const input=inputs[0][0]; if(!input) return true;
+        const buf=new Int16Array(input.length);
+        for(let i=0;i<input.length;i++) buf[i]=input[i]*32768;
+        const b64=btoa(String.fromCharCode(...new Uint8Array(buf.buffer)));
+        this.port.postMessage(b64);
+        return true;
       }
-    });
-  }catch(err){
-    console.error("Connection failed",err);
-    setStatus("Connection failed: "+err.message);
-    return;
-  }
+    }
+    registerProcessor('mic-worklet',MicWorklet);
+  `],{type:'application/javascript'})));
 
-  // start mic after small delay
-  setTimeout(()=>{
-    proc.onaudioprocess=e=>{
-      if(!session)return;
-      const d=e.inputBuffer.getChannelData(0);
-      const i16=new Int16Array(d.length);
-      for(let i=0;i<d.length;i++)i16[i]=d[i]*32768;
-      const b64=btoa(String.fromCharCode(...new Uint8Array(i16.buffer)));
-      session.sendRealtimeInput({media:{data:b64,mimeType:"audio/pcm;rate=16000"}});
-    };
-  },500);
+  workletNode=new AudioWorkletNode(inCtx,"mic-worklet");
+  micSrc.connect(workletNode);
+  workletNode.connect(inCtx.destination);
+
+  workletNode.port.onmessage=e=>{
+    if(session) session.sendRealtimeInput({media:{data:e.data,mimeType:"audio/pcm;rate=16000"}});
+  };
+
+  setStatus("Connecting...");
+  session=await ai.live.connect({
+    model:"gemini-2.5-flash-native-audio-preview-09-2025",
+    token:token,
+    callbacks:{
+      onopen:()=>{setStatus("Listening...");avatar.style.opacity=1;},
+      onmessage:onStream,
+      onerror:e=>setStatus("Error: "+e.message),
+      onclose:()=>{if(!closing)setStatus("Closed");session=null;}
+    },
+    config:{
+      responseModalities:[Modality.AUDIO],
+      speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:chosenVoice}}},
+      systemInstruction:"Speak continuously and naturally; ignore interruptions."
+    }
+  });
 
   connectBtn.disabled=true; endBtn.disabled=false;
 };
 
+/* ---- playback ---- */
 function onStream(msg){
   const part=msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
   if(!part||!outCtx)return;
@@ -173,18 +189,19 @@ function onStream(msg){
   for(let i=0;i<int16.length;i++)ch[i]=int16[i]/32768;
   const src=outCtx.createBufferSource();
   src.buffer=buf;
-  const gain=outCtx.createGain();
+  const g=outCtx.createGain();
   const split=outCtx.createChannelSplitter(1);
-  src.connect(gain);
-  gain.connect(split);
+  src.connect(g);
+  g.connect(split);
   split.connect(analyser);
-  gain.connect(outCtx.destination);
+  g.connect(outCtx.destination);
   if(outCtx.state==="suspended")outCtx.resume();
   startMouth();
   src.start();
   src.onended=()=>{stopMouth();};
 }
 
+/* ---- end ---- */
 endBtn.onclick=()=>{
   closing=true;
   if(session){try{session.close();}catch{} session=null;}
