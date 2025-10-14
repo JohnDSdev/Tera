@@ -3,125 +3,138 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gemini Voice Assistant (No Backend)</title>
+<title>Gemini Voice Assistant v1</title>
 <style>
 body{
   font-family:system-ui, sans-serif;
-  background:#0b0d10;color:#e5e7eb;
+  background:#050510;color:#b8e3ff;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   height:100vh;margin:0;text-align:center;
 }
+h2{color:#00ffff;text-shadow:0 0 8px #00e5ff;}
 button{
-  background:#14b8a6;border:none;border-radius:8px;
-  color:#fff;padding:10px 20px;font-size:1rem;
-  margin:8px;cursor:pointer;transition:background .2s;
+  background:#00e5ff;color:#000;border:none;border-radius:6px;
+  padding:10px 18px;margin:8px;font-size:1rem;cursor:pointer;
+  transition:background .2s;
 }
-button:hover{background:#0d9488}
-#status{margin-top:15px;font-size:1.1rem;color:#a5f3fc}
+button:hover{background:#00ffff;}
+#status{margin-top:12px;font-size:1.1rem;color:#9beeff;}
 </style>
 </head>
 <body>
-<h2>🎙 Gemini Voice Assistant</h2>
+<h2>Gemini Voice Assistant v1</h2>
 <button id="connectBtn">Connect</button>
 <button id="talkBtn" disabled>Start talking</button>
 <p id="status">Idle</p>
 
 <script>
-let GEMINI_KEY = null;
-let mediaRecorder, chunks = [];
+let GEMINI_KEY=null;
+const connectBtn=document.getElementById("connectBtn");
+const talkBtn=document.getElementById("talkBtn");
+const statusEl=document.getElementById("status");
 
-const statusEl = document.getElementById('status');
-const connectBtn = document.getElementById('connectBtn');
-const talkBtn = document.getElementById('talkBtn');
-
-connectBtn.onclick = () => {
-  GEMINI_KEY = prompt("Enter your Gemini API key:");
+connectBtn.onclick=()=>{
+  GEMINI_KEY=prompt("Enter your Gemini API key:");
   if(GEMINI_KEY){
-    statusEl.textContent = "Connected ✅";
-    talkBtn.disabled = false;
+    talkBtn.disabled=false;
+    statusEl.textContent="Connected ✅";
   }
 };
 
+// helper to convert Blob→Base64
+function blobToBase64(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(reader.result.split(',')[1]);
+    reader.onerror=e=>reject(e);
+    reader.readAsDataURL(blob);
+  });
+}
+
 async function recordAudio(){
-  const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-  chunks = [];
-  mediaRecorder = new MediaRecorder(stream);
-  mediaRecorder.ondataavailable = e => chunks.push(e.data);
-  mediaRecorder.start();
-  statusEl.textContent = "Listening... (speak for a few seconds)";
+  const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+  const mediaRecorder=new MediaRecorder(stream);
+  const chunks=[];
+  statusEl.textContent="🎙 Listening...";
   return new Promise(resolve=>{
+    mediaRecorder.ondataavailable=e=>chunks.push(e.data);
+    mediaRecorder.start();
     setTimeout(()=>{
       mediaRecorder.stop();
-      mediaRecorder.onstop = async ()=>{
-        const blob = new Blob(chunks, {type:'audio/webm'});
+      mediaRecorder.onstop=()=>{
+        const blob=new Blob(chunks,{type:'audio/webm'});
+        stream.getTracks().forEach(t=>t.stop());
         resolve(blob);
       };
-    },4000); // record 4 seconds
+    },4000);
   });
 }
 
-async function sttGemini(audioBlob){
-  const arrayBuffer = await audioBlob.arrayBuffer();
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-  const body = {
-    contents: [{
+async function geminiSTT(audioBlob){
+  const base64=await blobToBase64(audioBlob);
+  const body={
+    contents:[{
       role:"user",
       parts:[{
-        inlineData:{ mimeType:"audio/webm", data: base64 }
+        inlineData:{
+          mimeType:"audio/webm", 
+          data:base64
+        }
       }]
-    }]
+    }],
+    generationConfig:{responseModalities:["text"]}
   };
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(body)
-  });
-  const j = await res.json();
-  const text = j?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  return text.trim();
+  const res=await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+    {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}
+  );
+  const j=await res.json();
+  console.log("STT Response:",j);
+  return j?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()||"";
 }
 
-async function generateReply(prompt){
-  const body = {
-    contents:[{role:"user", parts:[{text:prompt}]}]
-  };
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(body)
-  });
-  const j = await res.json();
-  return j?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+async function geminiTextGen(prompt){
+  const body={contents:[{role:"user",parts:[{text:prompt}]}]};
+  const res=await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+    {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}
+  );
+  const j=await res.json();
+  console.log("TextGen:",j);
+  return j?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()||"";
 }
 
-async function ttsGemini(text){
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:speech?key=${GEMINI_KEY}`,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      input:{text},
-      voice:{languageCode:"en-US"},
-      audioConfig:{audioEncoding:"MP3"}
-    })
-  });
-  const j = await res.json();
-  const audioB64 = j.audioContent;
-  const audio = new Audio("data:audio/mp3;base64,"+audioB64);
+async function geminiTTS(text){
+  const res=await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:speech?key=${GEMINI_KEY}`,
+    {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        input:{text},
+        voice:{languageCode:"en-US"},
+        audioConfig:{audioEncoding:"MP3"}
+      })
+    }
+  );
+  const j=await res.json();
+  console.log("TTS:",j);
+  const audio=new Audio("data:audio/mp3;base64,"+j.audioContent);
   audio.play();
 }
 
-talkBtn.onclick = async ()=>{
-  talkBtn.disabled = true;
-  statusEl.textContent = "Recording...";
-  const audioBlob = await recordAudio();
-  statusEl.textContent = "Processing speech...";
-  const transcript = await sttGemini(audioBlob);
-  if(!transcript){statusEl.textContent="Didn’t catch that.";talkBtn.disabled=false;return;}
-  statusEl.textContent = "You said: "+transcript;
-  const reply = await generateReply(transcript);
-  statusEl.textContent = "Gemini: "+reply;
-  await ttsGemini(reply);
-  talkBtn.disabled = false;
+talkBtn.onclick=async()=>{
+  talkBtn.disabled=true;
+  statusEl.textContent="Recording...";
+  const blob=await recordAudio();
+  statusEl.textContent="Processing speech...";
+  const transcript=await geminiSTT(blob);
+  if(!transcript){statusEl.textContent="Didn’t catch that 😅";talkBtn.disabled=false;return;}
+  statusEl.textContent="You said: "+transcript;
+  const reply=await geminiTextGen(transcript);
+  statusEl.textContent="Gemini: "+reply;
+  await geminiTTS(reply);
+  talkBtn.disabled=false;
 };
 </script>
 </body>
