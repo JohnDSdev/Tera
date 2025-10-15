@@ -213,6 +213,9 @@
       word-break: break-word;
       font-size: 0.98rem;
       animation: fadeUp 0.35s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
 
     .bubble.user {
@@ -226,6 +229,10 @@
       align-self: flex-start;
       background: rgba(15, 23, 42, 0.05);
       border-bottom-left-radius: 4px;
+    }
+
+    .bubble-text {
+      display: block;
     }
 
     @keyframes fadeUp {
@@ -242,7 +249,6 @@
     .transcript-note {
       color: var(--muted);
       font-size: 0.85rem;
-      margin-top: 4px;
     }
 
     footer {
@@ -304,7 +310,7 @@
   <div class="app">
     <header>
       <h1>Gemini Voice AI</h1>
-      <p>Hold to talk, release to send. Gemini handles transcription, conversation, and speech back to you.</p>
+      <p>Connect to Gemini 2.5 Flash, hold to speak, and listen to the model respond.</p>
       <div class="connection">
         <input type="password" id="apiKey" placeholder="Enter your Gemini API key" autocomplete="off">
         <button id="connectBtn">Connect</button>
@@ -354,7 +360,9 @@
       'arm_behind_mouth_closed.png'
     ];
 
-    const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-latest:generateContent';
+    const GEMINI_CHAT_MODEL = 'gemini-2.5-flash';
+    const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+    const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
     const imageCache = new Map();
     [...startupFrames, idleFrame, ...speakingFrames].forEach(src => {
@@ -375,7 +383,7 @@
 
     const systemInstruction = {
       role: 'system',
-      parts: [{ text: 'You are a futuristic but friendly AI guide. Keep responses under 120 words and speak naturally.' }]
+      parts: [{ text: 'You are a futuristic but friendly AI guide. Keep answers under 120 words and respond conversationally to the user.' }]
     };
 
     const conversationHistory = [];
@@ -388,15 +396,20 @@
     function addMessage(role, text, note) {
       const bubble = document.createElement('div');
       bubble.className = `bubble ${role}`;
-      bubble.textContent = text;
-      messagesEl.appendChild(bubble);
+      const textEl = document.createElement('span');
+      textEl.className = 'bubble-text';
+      textEl.textContent = text;
+      bubble.appendChild(textEl);
+      let noteEl = null;
       if (note) {
-        const small = document.createElement('div');
-        small.className = 'transcript-note';
-        small.textContent = note;
-        bubble.appendChild(small);
+        noteEl = document.createElement('div');
+        noteEl.className = 'transcript-note';
+        noteEl.textContent = note;
+        bubble.appendChild(noteEl);
       }
+      messagesEl.appendChild(bubble);
       messagesEl.scrollTop = messagesEl.scrollHeight;
+      return { bubble, textEl, noteEl };
     }
 
     function setAvatar(frame, speaking = false) {
@@ -575,64 +588,32 @@
 
     async function handleRecording(blob) {
       updateStatus(true, 'Processing speech…');
-      addMessage('user', '…', 'Transcribing audio');
+      const userEntry = addMessage('user', '…', 'Transcribing audio');
       try {
         const transcript = await transcribeWithGemini(blob);
         if (!transcript) {
-          throw new Error('No transcript returned');
+          throw new Error('Transcription returned empty text.');
         }
-        replaceLastUserPlaceholder(transcript);
+        userEntry.textEl.textContent = transcript;
+        if (userEntry.noteEl) userEntry.noteEl.remove();
         conversationHistory.push({ role: 'user', parts: [{ text: transcript }] });
         updateStatus(true, 'Thinking…');
-        const response = await respondWithGemini();
-        if (!response) {
-          throw new Error('No response from Gemini');
+        const aiEntry = addMessage('ai', 'Thinking…');
+        const responseText = await respondWithGemini();
+        if (!responseText) {
+          throw new Error('Model response did not include text.');
         }
-        const { text, audio } = response;
-        if (text) {
-          addMessage('ai', text);
-        } else if (audio) {
-          addMessage('ai', '🔊 Voice response sent.');
-        }
-        if (audio) {
-          await playResponseAudio(audio);
-        } else if (text) {
-          await speakWithSpeechSynthesis(text);
-        } else {
-          stopAvatarSpeechAnimation();
-        }
+        aiEntry.textEl.textContent = responseText;
+        await playGeminiAudio(responseText);
         updateStatus(true, 'Ready');
       } catch (err) {
         console.error(err);
         updateStatus(false, 'Error');
         stopAvatarSpeechAnimation();
-        replaceLastUserPlaceholder('Audio could not be processed.');
+        userEntry.textEl.textContent = 'Audio could not be processed.';
+        if (userEntry.noteEl) userEntry.noteEl.textContent = err.message || 'An unknown error occurred.';
         addMessage('ai', 'I ran into a problem handling that message. Please try again.');
       }
-    }
-
-    function replaceLastUserPlaceholder(text) {
-      const bubbles = messagesEl.querySelectorAll('.bubble.user');
-      if (!bubbles.length) return;
-      const last = bubbles[bubbles.length - 1];
-      last.firstChild.textContent = text;
-      const note = last.querySelector('.transcript-note');
-      if (note) note.remove();
-    }
-
-    function cloneHistory() {
-      return conversationHistory.map(item => ({
-        role: item.role,
-        parts: item.parts.map(part => {
-          if (part.text !== undefined) {
-            return { text: part.text };
-          }
-          if (part.inlineData) {
-            return { inlineData: { ...part.inlineData } };
-          }
-          return { ...part };
-        })
-      }));
     }
 
     async function transcribeWithGemini(blob) {
@@ -643,14 +624,17 @@
           {
             role: 'user',
             parts: [
-              { text: 'Transcribe the following audio faithfully. Respond with text only.' },
+              { text: 'Please provide an accurate text transcript of the following audio.' },
               { inlineData: { mimeType, data: base64 } }
             ]
           }
-        ]
+        ],
+        generationConfig: {
+          responseMimeType: 'text/plain'
+        }
       };
 
-      const response = await fetch(`${GEMINI_ENDPOINT}?key=${encodeURIComponent(apiKey)}`, {
+      const response = await fetch(`${GEMINI_BASE_URL}/${encodeURIComponent(GEMINI_CHAT_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -667,51 +651,15 @@
     }
 
     async function respondWithGemini() {
-      const contents = cloneHistory();
-      const requestWithAudio = {
-        contents,
+      const body = {
+        contents: cloneHistory(),
         systemInstruction,
-        responseModalities: ['TEXT', 'AUDIO'],
-        audioConfig: {
-          audioEncoding: 'AUDIO_ENCODING_OGG_OPUS',
-          speakingRate: 1.0
+        generationConfig: {
+          responseMimeType: 'text/plain'
         }
       };
 
-      try {
-        const response = await callGemini(requestWithAudio);
-        recordModelResponse(response);
-        return response;
-      } catch (error) {
-        if (!isAudioCapabilityError(error)) {
-          throw error;
-        }
-        console.warn('Audio response not available, falling back to text.', error);
-        const fallback = await callGemini({
-          contents,
-          systemInstruction,
-          generationConfig: {
-            responseMimeType: 'text/plain'
-          }
-        });
-        recordModelResponse(fallback);
-        return { text: fallback.text, audio: null };
-      }
-    }
-
-    function recordModelResponse({ text, audio }) {
-      if (text) {
-        conversationHistory.push({ role: 'model', parts: [{ text }] });
-      } else if (audio) {
-        conversationHistory.push({
-          role: 'model',
-          parts: [{ inlineData: { data: audio.data, mimeType: audio.mimeType } }]
-        });
-      }
-    }
-
-    async function callGemini(body) {
-      const response = await fetch(`${GEMINI_ENDPOINT}?key=${encodeURIComponent(apiKey)}`, {
+      const response = await fetch(`${GEMINI_BASE_URL}/${encodeURIComponent(GEMINI_CHAT_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -719,37 +667,79 @@
 
       if (!response.ok) {
         const errorText = await response.text();
-        const err = new Error('Response failed: ' + errorText);
-        err.status = response.status;
-        throw err;
+        throw new Error('Response failed: ' + errorText);
+      }
+
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
+      if (text) {
+        conversationHistory.push({ role: 'model', parts: [{ text }] });
+      }
+      return text || '';
+    }
+
+    function cloneHistory() {
+      return conversationHistory.map(item => ({
+        role: item.role,
+        parts: item.parts.map(part => ({ ...part }))
+      }));
+    }
+
+    async function playGeminiAudio(text) {
+      try {
+        const audioPart = await synthesizeWithGemini(text);
+        if (audioPart) {
+          await playResponseAudio(audioPart);
+          return;
+        }
+      } catch (err) {
+        console.warn('Gemini TTS unavailable, falling back to speech synthesis.', err);
+      }
+      await speakWithSpeechSynthesis(text);
+    }
+
+    async function synthesizeWithGemini(text) {
+      const body = {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text }]
+          }
+        ],
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' }
+          }
+        }
+      };
+
+      const response = await fetch(`${GEMINI_BASE_URL}/${encodeURIComponent(GEMINI_TTS_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error('TTS failed: ' + errorText);
       }
 
       const data = await response.json();
       const parts = data?.candidates?.[0]?.content?.parts || [];
-      let audio = null;
-      const texts = [];
-      parts.forEach(part => {
-        if (part.text) {
-          texts.push(part.text);
-        }
-        if (part.inlineData && part.inlineData.data) {
-          audio = {
-            data: part.inlineData.data,
-            mimeType: part.inlineData.mimeType || 'audio/ogg'
-          };
-        }
-      });
-      return { text: texts.join('').trim(), audio };
-    }
-
-    function isAudioCapabilityError(error) {
-      const message = (error && error.message) || '';
-      return /INVALID_ARGUMENT/i.test(message) || /allowed mimetype/i.test(message);
+      const inline = parts.find(part => part.inlineData && part.inlineData.data);
+      if (!inline) {
+        throw new Error('TTS response did not contain audio data.');
+      }
+      return {
+        data: inline.inlineData.data,
+        mimeType: inline.inlineData.mimeType || 'audio/wav'
+      };
     }
 
     async function playResponseAudio(audioPart) {
       const buffer = base64ToArrayBuffer(audioPart.data);
-      const blob = new Blob([buffer], { type: audioPart.mimeType || 'audio/ogg' });
+      const blob = new Blob([buffer], { type: audioPart.mimeType || 'audio/wav' });
       const url = URL.createObjectURL(blob);
       if (!responseAudio.paused) {
         responseAudio.pause();
@@ -834,7 +824,6 @@
       talkBtn.classList.add('recording');
       talkBtn.textContent = 'Listening…';
       updateStatus(true, 'Listening…');
-      addMessage('user', '…', 'Recording audio');
       chunks = [];
       mediaRecorder.start();
       isRecording = true;
