@@ -175,37 +175,443 @@
       }
 
       .avatar-stage {
-        background: #fff;
-        border-radius: 24px;
-        padding: 24px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        position: relative;
-        min-height: 320px;
-        overflow: hidden;
+        order: -1;
+        margin-inline: auto;
+      }
+    }
+
+    .avatar-stage {
+      background: #fff;
+      border-radius: 24px;
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      min-height: 320px;
+      overflow: hidden;
+    }
+
+    .avatar-stage::after {
+      content: "";
+      position: absolute;
+      inset: 24px;
+      border-radius: 20px;
+      background: radial-gradient(circle at top, rgba(41, 98, 255, 0.12), transparent 60%);
+      z-index: 0;
+    }
+
+    .avatar-stage img {
+      width: min(260px, 100%);
+      object-fit: contain;
+      position: relative;
+      z-index: 1;
+      filter: drop-shadow(0 24px 50px rgba(15, 23, 42, 0.25));
+      transition: transform 0.4s ease;
+    }
+
+    .avatar-stage img.speaking {
+      transform: translateY(-6px) scale(1.02);
+    }
+
+    .conversation-panel {
+      background: #fff;
+      border-radius: 24px;
+      padding: clamp(20px, 4vw, 32px);
+      display: flex;
+      flex-direction: column;
+      min-height: 320px;
+      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 8px;
+      scrollbar-width: thin;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .messages::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .messages::-webkit-scrollbar-thumb {
+      background: rgba(41, 98, 255, 0.3);
+      border-radius: 999px;
+    }
+
+    .bubble {
+      padding: 14px 16px;
+      border-radius: 18px;
+      line-height: 1.48;
+      max-width: 100%;
+      word-break: break-word;
+      font-size: 0.98rem;
+      animation: fadeUp 0.35s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .bubble.user {
+      align-self: flex-end;
+      background: rgba(41, 98, 255, 0.14);
+      color: #1a2a6c;
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble.ai {
+      align-self: flex-start;
+      background: rgba(15, 23, 42, 0.05);
+      border-bottom-left-radius: 4px;
+    }
+
+    .bubble-text {
+      display: block;
+    }
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .transcript-note {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    footer {
+      padding: clamp(16px, 4vw, 28px) clamp(24px, 5vw, 48px) 32px;
+      border-top: 1px solid rgba(15, 23, 42, 0.06);
+      background: #f8f9ff;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .talk-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #talkBtn {
+      border: none;
+      border-radius: 999px;
+      padding: 18px 42px;
+      font-size: 1rem;
+      font-weight: 600;
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 18px 36px rgba(41, 98, 255, 0.25);
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    #talkBtn:disabled {
+      background: rgba(41, 98, 255, 0.38);
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    #talkBtn.recording {
+      background: #ef4444;
+      box-shadow: 0 18px 32px rgba(239, 68, 68, 0.35);
+    }
+
+    #talkBtn:not(:disabled):active {
+      transform: scale(0.97);
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    audio {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Gemini Voice AI</h1>
+      <p>Connect to Gemini 2.5 Flash, hold to speak, and listen to the model respond.</p>
+      <div class="connection">
+        <input type="password" id="apiKey" placeholder="Enter your Gemini API key" autocomplete="off">
+        <button id="connectBtn">Connect</button>
+        <div class="status-bar">
+          <span class="status-indicator" id="statusIndicator"></span>
+          <span id="statusText">Disconnected</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="avatar-stage">
+        <img id="avatar" alt="AI avatar" src="a7.png">
+      </section>
+      <section class="conversation-panel">
+        <div class="messages" id="messages"></div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="talk-controls">
+        <button id="talkBtn" disabled>Hold to talk</button>
+        <span class="hint" id="hintText">Connect with your API key to begin.</span>
+      </div>
+    </footer>
+  </div>
+
+  <audio id="responseAudio"></audio>
+
+  <script>
+    const apiKeyInput = document.getElementById('apiKey');
+    const connectBtn = document.getElementById('connectBtn');
+    const talkBtn = document.getElementById('talkBtn');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const statusText = document.getElementById('statusText');
+    const messagesEl = document.getElementById('messages');
+    const hintText = document.getElementById('hintText');
+    const avatarEl = document.getElementById('avatar');
+    const responseAudio = document.getElementById('responseAudio');
+
+    const startupFrames = ['a1.png', 'a2.png', 'a3.png', 'a4.png', 'a5.png', 'a6.png', 'a7.png'];
+    const idleFrame = 'arm_behind_mouth_closed.png';
+    const speakingFrames = [
+      'arm_out_mouth_open.png',
+      'arm_out_mouth_closed.png',
+      'arm_behind_mouth_open.png',
+      'arm_behind_mouth_closed.png'
+    ];
+
+    const GEMINI_CHAT_MODEL = 'gemini-2.5-flash';
+    const GEMINI_TTS_MODEL = 'gemini-2.5-flash-tts';
+    const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+    const GEMINI_TTS_SAMPLE_RATE = 24000;
+    const GEMINI_TTS_CHANNELS = 1;
+    const GEMINI_TTS_SAMPLE_WIDTH_BYTES = 2;
+
+    const imageCache = new Map();
+    [...startupFrames, idleFrame, ...speakingFrames].forEach(src => {
+      const img = new Image();
+      img.src = src;
+      imageCache.set(src, img);
+    });
+
+    let apiKey = '';
+    let connected = false;
+    let mediaStream = null;
+    let mediaRecorder = null;
+    let chunks = [];
+    let isRecording = false;
+    let speakingInterval = null;
+    let audioContext = null;
+    let recordedMimeType = 'audio/webm';
+
+    const systemInstruction = {
+      role: 'system',
+      parts: [{ text: 'You are a futuristic but friendly AI guide. Keep answers under 120 words and respond conversationally to the user.' }]
+    };
+
+    const conversationHistory = [];
+
+    function updateStatus(online, text) {
+      statusIndicator.classList.toggle('online', Boolean(online));
+      statusText.textContent = text;
+    }
+
+    function addMessage(role, text, note) {
+      const bubble = document.createElement('div');
+      bubble.className = `bubble ${role}`;
+      const textEl = document.createElement('span');
+      textEl.className = 'bubble-text';
+      textEl.textContent = text;
+      bubble.appendChild(textEl);
+      let noteEl = null;
+      if (note) {
+        noteEl = document.createElement('div');
+        noteEl.className = 'transcript-note';
+        noteEl.textContent = note;
+        bubble.appendChild(noteEl);
+      }
+      messagesEl.appendChild(bubble);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return { bubble, textEl, noteEl };
+    }
+
+    function setAvatar(frame, speaking = false) {
+      avatarEl.src = frame;
+      avatarEl.classList.toggle('speaking', speaking);
+    }
+
+    function startAvatarSpeechAnimation() {
+      if (speakingInterval) {
+        clearInterval(speakingInterval);
+      }
+      let frameIndex = 0;
+      setAvatar(speakingFrames[frameIndex], true);
+      speakingInterval = setInterval(() => {
+        frameIndex = (frameIndex + 1) % speakingFrames.length;
+        const frame = speakingFrames[frameIndex];
+        const mouthOpen = frame.includes('open');
+        setAvatar(frame, mouthOpen);
+      }, 180);
+    }
+
+    function stopAvatarSpeechAnimation() {
+      if (speakingInterval) {
+        clearInterval(speakingInterval);
+        speakingInterval = null;
+      }
+      setAvatar(idleFrame, false);
+    }
+
+    async function playStartupSequence() {
+      await playStartupSound();
+      for (let i = 0; i < startupFrames.length; i++) {
+        setAvatar(startupFrames[i]);
+        await wait(160);
+      }
+      setAvatar(idleFrame);
+    }
+
+    async function playStartupSound() {
+      try {
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        const osc = audioContext.createOscillator();
+        const osc2 = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(320, audioContext.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, audioContext.currentTime + 1.1);
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(120, audioContext.currentTime);
+        osc2.frequency.linearRampToValueAtTime(420, audioContext.currentTime + 1.1);
+        gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.6, audioContext.currentTime + 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 1.2);
+        osc.connect(gain);
+        osc2.connect(gain);
+        gain.connect(audioContext.destination);
+        osc.start();
+        osc2.start();
+        osc.stop(audioContext.currentTime + 1.25);
+        osc2.stop(audioContext.currentTime + 1.25);
+      } catch (err) {
+        console.warn('Startup sound failed', err);
+      }
+    }
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    connectBtn.addEventListener('click', async () => {
+      if (connected) {
+        disconnect();
+        return;
       }
 
-      .avatar-stage::after {
-        content: "";
-        position: absolute;
-        inset: 24px;
-        border-radius: 20px;
-        background: radial-gradient(
-          circle at top,
-          rgba(41, 98, 255, 0.12),
-          transparent 60%
-        );
-        z-index: 0;
+      const key = apiKeyInput.value.trim();
+      if (!key) {
+        alert('Please enter your Gemini API key.');
+        return;
+      }
+      if (typeof MediaRecorder === 'undefined') {
+        alert('Media recording is not supported in this browser. Try using the latest version of Chrome, Edge, or Firefox.');
+        connectBtn.disabled = false;
+        hintText.textContent = 'MediaRecorder is unavailable in this browser.';
+        return;
+      }
+      apiKey = key;
+      connectBtn.disabled = true;
+      hintText.textContent = 'Requesting microphone access…';
+
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        console.error(err);
+        alert('Microphone permission is required to use voice chat.');
+        connectBtn.disabled = false;
+        hintText.textContent = 'Microphone permission denied.';
+        return;
       }
 
-      .avatar-stage img {
-        width: min(260px, 100%);
-        object-fit: contain;
-        position: relative;
-        z-index: 1;
-        filter: drop-shadow(0 24px 50px rgba(15, 23, 42, 0.25));
-        transition: transform 0.4s ease;
+      await playStartupSequence();
+      setupRecorder();
+      connected = true;
+      connectBtn.textContent = 'Disconnect';
+      connectBtn.disabled = false;
+      talkBtn.disabled = false;
+      hintText.textContent = 'Hold the button, speak, then release to send.';
+      updateStatus(true, 'Ready');
+      conversationHistory.length = 0;
+    });
+
+    function disconnect() {
+      connected = false;
+      apiKey = '';
+      connectBtn.textContent = 'Connect';
+      talkBtn.disabled = true;
+      connectBtn.disabled = false;
+      hintText.textContent = 'Connect with your API key to begin.';
+      updateStatus(false, 'Disconnected');
+      stopAvatarSpeechAnimation();
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+      }
+      conversationHistory.length = 0;
+    }
+
+    function setupRecorder() {
+      if (!mediaStream) return;
+      const preferredTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/mp4'
+      ];
+      let chosenType = null;
+      if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
+        chosenType = preferredTypes.find(type => MediaRecorder.isTypeSupported(type)) || null;
+      }
+
+      try {
+        if (chosenType) {
+          mediaRecorder = new MediaRecorder(mediaStream, { mimeType: chosenType });
+          recordedMimeType = chosenType;
+        } else {
+          mediaRecorder = new MediaRecorder(mediaStream);
+          recordedMimeType = mediaRecorder.mimeType || recordedMimeType;
+        }
+      } catch (error) {
+        console.error('Failed to initialize recorder', error);
+        alert('Your browser was unable to start audio recording. Try another browser or update to the latest version.');
+        hintText.textContent = 'Recording failed to start.';
+        connectBtn.disabled = false;
+        talkBtn.disabled = true;
+        return;
       }
 
       .avatar-stage img.speaking {
@@ -664,39 +1070,14 @@
             mediaRecorder = new MediaRecorder(mediaStream);
             recordedMimeType = mediaRecorder.mimeType || recordedMimeType;
           }
-        } catch (error) {
-          console.error("Failed to initialize recorder", error);
-          alert(
-            "Your browser was unable to start audio recording. Try another browser or update to the latest version.",
-          );
-          hintText.textContent = "Recording failed to start.";
-          connectBtn.disabled = false;
-          talkBtn.disabled = true;
-          return;
-        }
-
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data && event.data.size > 0) {
-            chunks.push(event.data);
-          }
-        };
-        mediaRecorder.onstop = async () => {
-          if (!chunks.length) return;
-          const blob = new Blob(chunks, {
-            type: recordedMimeType || "audio/webm",
-          });
-          chunks = [];
-          await handleRecording(blob);
-        };
-      }
-
-      async function handleRecording(blob) {
-        updateStatus(true, "Processing speech…");
-        const userEntry = addMessage("user", "…", "Transcribing audio");
-        try {
-          const transcript = await transcribeWithGemini(blob);
-          if (!transcript) {
-            throw new Error("Transcription returned empty text.");
+        ],
+        responseModalities: ['AUDIO'],
+        generationConfig: {
+          responseMimeType: 'audio/wav;rate=24000'
+        },
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' }
           }
           userEntry.textEl.textContent = transcript;
           if (userEntry.noteEl) userEntry.noteEl.remove();
@@ -804,11 +1185,14 @@
         return text || "";
       }
 
-      function cloneHistory() {
-        return conversationHistory.map((item) => ({
-          role: item.role,
-          parts: item.parts.map((part) => ({ ...part })),
-        }));
+    async function playResponseAudio(audioPart) {
+      const buffer = base64ToArrayBuffer(audioPart.data);
+      const { audioBuffer, mimeType } = ensureWavContainer(buffer, audioPart.mimeType);
+      const blob = new Blob([audioBuffer], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      if (!responseAudio.paused) {
+        responseAudio.pause();
+        responseAudio.currentTime = 0;
       }
 
       async function playGeminiAudio(text) {
@@ -827,38 +1211,24 @@
         await speakWithSpeechSynthesis(text);
       }
 
-      async function synthesizeWithGemini(text) {
-        const body = {
-          contents: [
-            {
-              role: "user",
-              parts: [{ text }],
-            },
-          ],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            responseMimeType: "audio/pcm;rate=24000",
-          },
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: "Kore" },
-            },
-          },
-        };
+      const cleanup = () => {
+        stopAvatarSpeechAnimation();
+        URL.revokeObjectURL(url);
+        responseAudio.onended = null;
+      };
 
-        const response = await fetch(
-          `${GEMINI_BASE_URL}/${encodeURIComponent(GEMINI_TTS_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          },
-        );
+      responseAudio.onended = () => {
+        cleanup();
+      };
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error("TTS failed: " + errorText);
-        }
+      try {
+        await responseAudio.play();
+      } catch (err) {
+        console.warn('Playback failed', err);
+        cleanup();
+        throw err;
+      }
+    }
 
         const data = await response.json();
         const parts = data?.candidates?.[0]?.content?.parts || [];
@@ -1037,43 +1407,83 @@
       ["mousedown", "touchstart"].forEach((eventName) => {
         talkBtn.addEventListener(eventName, startRecording);
       });
+    }
 
-      ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(
-        (eventName) => {
-          talkBtn.addEventListener(eventName, stopRecording);
-        },
-      );
+    function base64ToArrayBuffer(base64) {
+      const binary = atob(base64);
+      const len = binary.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
 
-      async function startRecording(event) {
-        if (!connected || !mediaRecorder) return;
-        event.preventDefault();
-        if (mediaRecorder.state === "recording") return;
-        talkBtn.classList.add("recording");
-        talkBtn.textContent = "Listening…";
-        updateStatus(true, "Listening…");
-        chunks = [];
-        mediaRecorder.start();
-        isRecording = true;
+    function ensureWavContainer(buffer, mimeType = '') {
+      const type = (mimeType || '').toLowerCase();
+      const bytes = new Uint8Array(buffer);
+      const hasRiffHeader =
+        bytes.length > 4 &&
+        bytes[0] === 0x52 &&
+        bytes[1] === 0x49 &&
+        bytes[2] === 0x46 &&
+        bytes[3] === 0x46;
+
+      if (hasRiffHeader || (type && !type.includes('pcm') && !type.includes('wav'))) {
+        return { audioBuffer: buffer, mimeType: type || 'audio/wav' };
       }
 
-      function stopRecording(event) {
-        if (!connected || !mediaRecorder || !isRecording) return;
-        event.preventDefault();
-        talkBtn.classList.remove("recording");
-        talkBtn.textContent = "Hold to talk";
-        isRecording = false;
-        if (mediaRecorder.state === "recording") {
-          mediaRecorder.stop();
+      const wavBuffer = pcmToWav(buffer, {
+        sampleRate: GEMINI_TTS_SAMPLE_RATE,
+        channels: GEMINI_TTS_CHANNELS,
+        sampleWidth: GEMINI_TTS_SAMPLE_WIDTH_BYTES
+      });
+      return { audioBuffer: wavBuffer, mimeType: 'audio/wav' };
+    }
+
+    function pcmToWav(pcmBuffer, { sampleRate, channels, sampleWidth }) {
+      const sourceView = pcmBuffer instanceof ArrayBuffer ? new Uint8Array(pcmBuffer) : new Uint8Array(pcmBuffer.buffer);
+      const dataLength = sourceView.byteLength;
+      const buffer = new ArrayBuffer(44 + dataLength);
+      const view = new DataView(buffer);
+
+      function writeString(offset, str) {
+        for (let i = 0; i < str.length; i++) {
+          view.setUint8(offset + i, str.charCodeAt(i));
         }
       }
 
-      window.addEventListener("beforeunload", () => {
-        if (audioContext) {
-          audioContext.close();
-        }
-        if (mediaStream) {
-          mediaStream.getTracks().forEach((track) => track.stop());
-        }
+      let offset = 0;
+      writeString(offset, 'RIFF'); offset += 4;
+      view.setUint32(offset, 36 + dataLength, true); offset += 4;
+      writeString(offset, 'WAVE'); offset += 4;
+      writeString(offset, 'fmt '); offset += 4;
+      view.setUint32(offset, 16, true); offset += 4; // Subchunk1Size for PCM
+      view.setUint16(offset, 1, true); offset += 2; // Audio format (PCM)
+      view.setUint16(offset, channels, true); offset += 2;
+      view.setUint32(offset, sampleRate, true); offset += 4;
+      const byteRate = sampleRate * channels * sampleWidth;
+      view.setUint32(offset, byteRate, true); offset += 4;
+      const blockAlign = channels * sampleWidth;
+      view.setUint16(offset, blockAlign, true); offset += 2;
+      view.setUint16(offset, sampleWidth * 8, true); offset += 2;
+      writeString(offset, 'data'); offset += 4;
+      view.setUint32(offset, dataLength, true); offset += 4;
+
+      new Uint8Array(buffer, 44).set(sourceView);
+
+      return buffer;
+    }
+
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
       });
     </script>
   </body>
