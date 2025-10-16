@@ -604,6 +604,9 @@
                 }
               ]
             },
+            generationConfig: {
+              responseMimeType: 'application/json'
+            },
             contents
           })
         });
@@ -658,7 +661,7 @@
             generationConfig: {
               responseModalities: ['AUDIO']
             },
-            audioConfig: {
+            speechConfig: {
               voiceConfig: {
                 prebuiltVoiceConfig: {
                   voiceName: 'Kore'
