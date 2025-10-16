@@ -709,10 +709,13 @@
             parts: [{ text }]
           }
         ],
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' }
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          responseMimeType: 'audio/pcm;rate=24000',
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Kore' }
+            }
           }
         }
       };
