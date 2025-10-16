@@ -1,3 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini Voice AI</title>
+  <style>
+    :root {
+      color-scheme: only light;
+      --accent: #2962ff;
+      --accent-dark: #0039cb;
+      --bg: #ffffff;
+      --text: #141414;
+      --muted: #667085;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+      padding: clamp(16px, 5vw, 48px);
+    }
+
+    .app {
+      width: min(960px, 100%);
+      background: #f6f7fb;
+      border-radius: 28px;
+      box-shadow: 0 32px 70px rgba(20, 20, 43, 0.18);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    header {
+      padding: 28px clamp(24px, 5vw, 48px);
+      background: linear-gradient(120deg, rgba(41, 98, 255, 0.16), rgba(6, 64, 255, 0));
+      border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    }
+
+    header h1 {
+      margin: 0 0 6px;
+      font-size: clamp(1.6rem, 2.4vw + 1rem, 2.4rem);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+    }
+
+    header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .connection {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+      align-items: center;
+    }
+
+    .connection input {
+      flex: 1 1 220px;
+      padding: 12px 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      background: #fff;
+      font-size: 0.95rem;
+    }
+
+    .connection button {
+      border: none;
+      border-radius: 14px;
+      padding: 12px 20px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    #connectBtn {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 12px 22px rgba(41, 98, 255, 0.28);
+    }
+
+    #connectBtn:disabled {
+      background: rgba(41, 98, 255, 0.42);
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    #connectBtn:not(:disabled):hover {
+      transform: translateY(-1px);
+      box-shadow: 0 18px 28px rgba(41, 98, 255, 0.34);
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #d1d5db;
+      box-shadow: 0 0 0 4px rgba(209, 213, 219, 0.35);
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .status-indicator.online {
+      background: #10b981;
+      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.25);
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(260px, 340px) 1fr;
+      gap: clamp(24px, 4vw, 48px);
+      padding: clamp(24px, 5vw, 48px);
+    }
+
+    @media (max-width: 880px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+      .avatar-stage {
+        order: -1;
+        margin-inline: auto;
+      }
+    }
+
+    .avatar-stage {
+      background: #fff;
+      border-radius: 24px;
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      min-height: 320px;
+      overflow: hidden;
+    }
+
+    .avatar-stage::after {
+      content: "";
+      position: absolute;
+      inset: 24px;
+      border-radius: 20px;
+      background: radial-gradient(circle at top, rgba(41, 98, 255, 0.12), transparent 60%);
+      z-index: 0;
+    }
+
+    .avatar-stage img {
+      width: min(260px, 100%);
+      object-fit: contain;
+      position: relative;
+      z-index: 1;
+      filter: drop-shadow(0 24px 50px rgba(15, 23, 42, 0.25));
+      transition: transform 0.4s ease;
+    }
+
+    .avatar-stage img.speaking {
+      transform: translateY(-6px) scale(1.02);
+    }
+
+    .conversation-panel {
+      background: #fff;
+      border-radius: 24px;
+      padding: clamp(20px, 4vw, 32px);
+      display: flex;
+      flex-direction: column;
+      min-height: 320px;
+      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 8px;
+      scrollbar-width: thin;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .messages::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .messages::-webkit-scrollbar-thumb {
+      background: rgba(41, 98, 255, 0.3);
+      border-radius: 999px;
+    }
+
+    .bubble {
+      padding: 14px 16px;
+      border-radius: 18px;
+      line-height: 1.48;
+      max-width: 100%;
+      word-break: break-word;
+      font-size: 0.98rem;
+      animation: fadeUp 0.35s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .bubble.user {
+      align-self: flex-end;
+      background: rgba(41, 98, 255, 0.14);
+      color: #1a2a6c;
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble.ai {
+      align-self: flex-start;
+      background: rgba(15, 23, 42, 0.05);
+      border-bottom-left-radius: 4px;
+    }
+
+    .bubble-text {
+      display: block;
+    }
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .transcript-note {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    footer {
+      padding: clamp(16px, 4vw, 28px) clamp(24px, 5vw, 48px) 32px;
+      border-top: 1px solid rgba(15, 23, 42, 0.06);
+      background: #f8f9ff;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .talk-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #talkBtn {
+      border: none;
+      border-radius: 999px;
+      padding: 18px 42px;
+      font-size: 1rem;
+      font-weight: 600;
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 18px 36px rgba(41, 98, 255, 0.25);
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    #talkBtn:disabled {
+      background: rgba(41, 98, 255, 0.38);
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    #talkBtn.recording {
+      background: #ef4444;
+      box-shadow: 0 18px 32px rgba(239, 68, 68, 0.35);
+    }
+
+    #talkBtn:not(:disabled):active {
+      transform: scale(0.97);
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    audio {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Gemini Voice AI</h1>
+      <p>Connect to Gemini 2.5 Flash, hold to speak, and listen to the model respond.</p>
+      <div class="connection">
+        <input type="password" id="apiKey" placeholder="Enter your Gemini API key" autocomplete="off">
+        <button id="connectBtn">Connect</button>
+        <div class="status-bar">
+          <span class="status-indicator" id="statusIndicator"></span>
+          <span id="statusText">Disconnected</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="avatar-stage">
+        <img id="avatar" alt="AI avatar" src="a7.png">
+      </section>
+      <section class="conversation-panel">
+        <div class="messages" id="messages"></div>
+      </section>
     </main>
 
     <footer>
@@ -23,16 +353,19 @@
 
     const startupFrames = ['a1.png', 'a2.png', 'a3.png', 'a4.png', 'a5.png', 'a6.png', 'a7.png'];
     const idleFrame = 'arm_behind_mouth_closed.png';
-    const calmFrames = ['arm_behind_mouth_open.png', 'arm_behind_mouth_closed.png'];
-    const emphasisedFrames = ['arm_out_mouth_open.png', 'arm_out_mouth_closed.png'];
-    const animationFrames = [...new Set([...calmFrames, ...emphasisedFrames])];
+    const speakingFrames = [
+      'arm_out_mouth_open.png',
+      'arm_out_mouth_closed.png',
+      'arm_behind_mouth_open.png',
+      'arm_behind_mouth_closed.png'
+    ];
 
     const GEMINI_CHAT_MODEL = 'gemini-2.5-flash';
     const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
     const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
     const imageCache = new Map();
-    [...startupFrames, idleFrame, ...animationFrames].forEach(src => {
+    [...startupFrames, idleFrame, ...speakingFrames].forEach(src => {
       const img = new Image();
       img.src = src;
       imageCache.set(src, img);
@@ -44,11 +377,8 @@
     let mediaRecorder = null;
     let chunks = [];
     let isRecording = false;
+    let speakingInterval = null;
     let audioContext = null;
-    let responseAudioSource = null;
-    let responseAudioAnalyser = null;
-    let avatarAnimation = null;
-    let currentAudioObjectUrl = null;
     let recordedMimeType = 'audio/webm';
 
     const systemInstruction = {
@@ -87,115 +417,26 @@
       avatarEl.classList.toggle('speaking', speaking);
     }
 
-    function startAvatarSpeechAnimation({ analyser } = {}) {
-      stopAvatarSpeechAnimation();
-
-      const state = {
-        analyser: analyser || null,
-        dataArray: analyser ? new Uint8Array(analyser.fftSize) : null,
-        emphasisLevel: 0,
-        manualEmphasisUntil: 0,
-        frameSet: calmFrames,
-        frameIndex: 0,
-        lastFrameTime: 0,
-        rafId: null
-      };
-
-      function setManualEmphasis(active, holdMs = 260) {
-        state.manualEmphasisUntil = active ? performance.now() + holdMs : 0;
+    function startAvatarSpeechAnimation() {
+      if (speakingInterval) {
+        clearInterval(speakingInterval);
       }
-
-      const initialFrame = state.frameSet[state.frameIndex];
-      setAvatar(initialFrame, initialFrame.includes('open'));
-
-      function loop(now) {
-        let emphasised = false;
-
-        if (state.analyser && state.dataArray) {
-          state.analyser.getByteTimeDomainData(state.dataArray);
-          let sumSquares = 0;
-          for (let i = 0; i < state.dataArray.length; i++) {
-            const sample = (state.dataArray[i] - 128) / 128;
-            sumSquares += sample * sample;
-          }
-          const rms = Math.sqrt(sumSquares / state.dataArray.length);
-          state.emphasisLevel = state.emphasisLevel * 0.6 + rms * 0.4;
-          emphasised = state.emphasisLevel > 0.22;
-        }
-
-        if (state.manualEmphasisUntil && now < state.manualEmphasisUntil) {
-          emphasised = true;
-        }
-
-        const targetFrames = emphasised ? emphasisedFrames : calmFrames;
-        if (state.frameSet !== targetFrames) {
-          state.frameSet = targetFrames;
-          state.frameIndex = 0;
-          state.lastFrameTime = 0;
-        }
-
-        const frameDelay = emphasised ? 130 : 200;
-        if (!state.lastFrameTime || now - state.lastFrameTime >= frameDelay) {
-          const frame = state.frameSet[state.frameIndex];
-          setAvatar(frame, frame.includes('open'));
-          state.frameIndex = (state.frameIndex + 1) % state.frameSet.length;
-          state.lastFrameTime = now;
-        }
-
-        state.rafId = requestAnimationFrame(loop);
-      }
-
-      state.rafId = requestAnimationFrame(loop);
-      avatarAnimation = {
-        state,
-        setManualEmphasis,
-      };
-      return avatarAnimation;
+      let frameIndex = 0;
+      setAvatar(speakingFrames[frameIndex], true);
+      speakingInterval = setInterval(() => {
+        frameIndex = (frameIndex + 1) % speakingFrames.length;
+        const frame = speakingFrames[frameIndex];
+        const mouthOpen = frame.includes('open');
+        setAvatar(frame, mouthOpen);
+      }, 180);
     }
 
     function stopAvatarSpeechAnimation() {
-      if (avatarAnimation?.state?.rafId) {
-        cancelAnimationFrame(avatarAnimation.state.rafId);
+      if (speakingInterval) {
+        clearInterval(speakingInterval);
+        speakingInterval = null;
       }
-      avatarAnimation = null;
       setAvatar(idleFrame, false);
-    }
-
-    function ensureResponseAudioAnalyser() {
-      if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      if (!audioContext) {
-        return null;
-      }
-      if (!responseAudioSource) {
-        responseAudioSource = audioContext.createMediaElementSource(responseAudio);
-        responseAudioAnalyser = audioContext.createAnalyser();
-        responseAudioAnalyser.fftSize = 1024;
-        responseAudioAnalyser.smoothingTimeConstant = 0.65;
-        responseAudioSource.connect(responseAudioAnalyser);
-        responseAudioAnalyser.connect(audioContext.destination);
-      }
-      return responseAudioAnalyser;
-    }
-
-    function computeEmphasisRanges(text) {
-      const ranges = [];
-      if (!text) return ranges;
-      const wordRegex = /\b[\w']+\b/g;
-      let match;
-      while ((match = wordRegex.exec(text)) !== null) {
-        const start = match.index;
-        const end = start + match[0].length;
-        const word = match[0];
-        const trailingChar = text.slice(end, end + 1);
-        const isUpper = word.length > 2 && word === word.toUpperCase();
-        const hasPunctuation = /[!?]/.test(trailingChar);
-        if (isUpper || hasPunctuation) {
-          ranges.push({ start, end });
-        }
-      }
-      return ranges;
     }
 
     async function playStartupSequence() {
@@ -223,7 +464,49 @@
         osc2.frequency.linearRampToValueAtTime(420, audioContext.currentTime + 1.1);
         gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.6, audioContext.currentTime + 0.2);
-@@ -510,50 +599,61 @@
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 1.2);
+        osc.connect(gain);
+        osc2.connect(gain);
+        gain.connect(audioContext.destination);
+        osc.start();
+        osc2.start();
+        osc.stop(audioContext.currentTime + 1.25);
+        osc2.stop(audioContext.currentTime + 1.25);
+      } catch (err) {
+        console.warn('Startup sound failed', err);
+      }
+    }
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    connectBtn.addEventListener('click', async () => {
+      if (connected) {
+        disconnect();
+        return;
+      }
+
+      const key = apiKeyInput.value.trim();
+      if (!key) {
+        alert('Please enter your Gemini API key.');
+        return;
+      }
+      if (typeof MediaRecorder === 'undefined') {
+        alert('Media recording is not supported in this browser. Try using the latest version of Chrome, Edge, or Firefox.');
+        connectBtn.disabled = false;
+        hintText.textContent = 'MediaRecorder is unavailable in this browser.';
+        return;
+      }
+      apiKey = key;
+      connectBtn.disabled = true;
+      hintText.textContent = 'Requesting microphone access…';
+
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        console.error(err);
+        alert('Microphone permission is required to use voice chat.');
         connectBtn.disabled = false;
         hintText.textContent = 'Microphone permission denied.';
         return;
@@ -249,17 +532,6 @@
       hintText.textContent = 'Connect with your API key to begin.';
       updateStatus(false, 'Disconnected');
       stopAvatarSpeechAnimation();
-      if (!responseAudio.paused) {
-        responseAudio.pause();
-        responseAudio.currentTime = 0;
-      }
-      if (currentAudioObjectUrl) {
-        URL.revokeObjectURL(currentAudioObjectUrl);
-        currentAudioObjectUrl = null;
-      }
-      if ('speechSynthesis' in window) {
-        speechSynthesis.cancel();
-      }
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
       }
@@ -285,7 +557,130 @@
       }
 
       try {
-@@ -684,120 +784,178 @@
+        if (chosenType) {
+          mediaRecorder = new MediaRecorder(mediaStream, { mimeType: chosenType });
+          recordedMimeType = chosenType;
+        } else {
+          mediaRecorder = new MediaRecorder(mediaStream);
+          recordedMimeType = mediaRecorder.mimeType || recordedMimeType;
+        }
+      } catch (error) {
+        console.error('Failed to initialize recorder', error);
+        alert('Your browser was unable to start audio recording. Try another browser or update to the latest version.');
+        hintText.textContent = 'Recording failed to start.';
+        connectBtn.disabled = false;
+        talkBtn.disabled = true;
+        return;
+      }
+
+      mediaRecorder.ondataavailable = event => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+      mediaRecorder.onstop = async () => {
+        if (!chunks.length) return;
+        const blob = new Blob(chunks, { type: recordedMimeType || 'audio/webm' });
+        chunks = [];
+        await handleRecording(blob);
+      };
+    }
+
+    async function handleRecording(blob) {
+      updateStatus(true, 'Processing speech…');
+      const userEntry = addMessage('user', '…', 'Transcribing audio');
+      try {
+        const transcript = await transcribeWithGemini(blob);
+        if (!transcript) {
+          throw new Error('Transcription returned empty text.');
+        }
+        userEntry.textEl.textContent = transcript;
+        if (userEntry.noteEl) userEntry.noteEl.remove();
+        conversationHistory.push({ role: 'user', parts: [{ text: transcript }] });
+        updateStatus(true, 'Thinking…');
+        const aiEntry = addMessage('ai', 'Thinking…');
+        const responseText = await respondWithGemini();
+        if (!responseText) {
+          throw new Error('Model response did not include text.');
+        }
+        aiEntry.textEl.textContent = responseText;
+        await playGeminiAudio(responseText);
+        updateStatus(true, 'Ready');
+      } catch (err) {
+        console.error(err);
+        updateStatus(false, 'Error');
+        stopAvatarSpeechAnimation();
+        userEntry.textEl.textContent = 'Audio could not be processed.';
+        if (userEntry.noteEl) userEntry.noteEl.textContent = err.message || 'An unknown error occurred.';
+        addMessage('ai', 'I ran into a problem handling that message. Please try again.');
+      }
+    }
+
+    async function transcribeWithGemini(blob) {
+      const mimeType = blob.type || recordedMimeType || 'audio/webm';
+      const base64 = await blobToBase64(blob);
+      const body = {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: 'Please provide an accurate text transcript of the following audio.' },
+              { inlineData: { mimeType, data: base64 } }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: 'text/plain'
+        }
+      };
+
+      const response = await fetch(`${GEMINI_BASE_URL}/${encodeURIComponent(GEMINI_CHAT_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error('Transcription failed: ' + errorText);
+      }
+
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
+      return text || '';
+    }
+
+    async function respondWithGemini() {
+      const body = {
+        contents: cloneHistory(),
+        systemInstruction,
+        generationConfig: {
+          responseMimeType: 'text/plain'
+        }
+      };
+
+      const response = await fetch(`${GEMINI_BASE_URL}/${encodeURIComponent(GEMINI_CHAT_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error('Response failed: ' + errorText);
+      }
+
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
+      if (text) {
+        conversationHistory.push({ role: 'model', parts: [{ text }] });
+      }
+      return text || '';
+    }
+
+    function cloneHistory() {
+      return conversationHistory.map(item => ({
+        role: item.role,
         parts: item.parts.map(part => ({ ...part }))
       }));
     }
@@ -311,12 +706,10 @@
             parts: [{ text }]
           }
         ],
-        generationConfig: {
-          responseMimeType: 'audio/ogg; codecs=opus',
-          responseAudioConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Kore' }
-            }
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' }
           }
         }
       };
@@ -334,84 +727,38 @@
 
       const data = await response.json();
       const parts = data?.candidates?.[0]?.content?.parts || [];
-      const audioParts = parts.filter(part => part.inlineData && part.inlineData.data);
-      if (!audioParts.length) {
+      const inline = parts.find(part => part.inlineData && part.inlineData.data);
+      if (!inline) {
         throw new Error('TTS response did not contain audio data.');
       }
-      const combinedData = audioParts.map(part => part.inlineData.data).join('');
       return {
-        data: combinedData,
-        mimeType: audioParts[0].inlineData.mimeType || 'audio/ogg; codecs=opus'
+        data: inline.inlineData.data,
+        mimeType: inline.inlineData.mimeType || 'audio/wav'
       };
     }
 
     async function playResponseAudio(audioPart) {
       const buffer = base64ToArrayBuffer(audioPart.data);
-      const blob = new Blob([buffer], { type: audioPart.mimeType || 'audio/ogg; codecs=opus' });
+      const blob = new Blob([buffer], { type: audioPart.mimeType || 'audio/wav' });
       const url = URL.createObjectURL(blob);
-
       if (!responseAudio.paused) {
         responseAudio.pause();
         responseAudio.currentTime = 0;
       }
-      if (currentAudioObjectUrl) {
-        URL.revokeObjectURL(currentAudioObjectUrl);
-        currentAudioObjectUrl = null;
-      }
       if ('speechSynthesis' in window) {
         speechSynthesis.cancel();
       }
-
       responseAudio.src = url;
-      currentAudioObjectUrl = url;
+      startAvatarSpeechAnimation();
 
-      const analyser = ensureResponseAudioAnalyser();
-      if (audioContext && audioContext.state === 'suspended') {
-        try {
-          await audioContext.resume();
-        } catch (err) {
-          console.warn('Unable to resume audio context', err);
-        }
-      }
-
-      startAvatarSpeechAnimation({ analyser });
-
-      await new Promise((resolve, reject) => {
-        let finished = false;
-
-        const cleanup = () => {
-          if (finished) return;
-          finished = true;
-          responseAudio.onended = null;
-          responseAudio.onerror = null;
-          stopAvatarSpeechAnimation();
-          if (currentAudioObjectUrl) {
-            URL.revokeObjectURL(currentAudioObjectUrl);
-            currentAudioObjectUrl = null;
-          }
-          resolve();
-        };
-
-        const fail = err => {
-          if (finished) return;
-          finished = true;
-          responseAudio.onended = null;
-          responseAudio.onerror = null;
-          stopAvatarSpeechAnimation();
-          if (currentAudioObjectUrl) {
-            URL.revokeObjectURL(currentAudioObjectUrl);
-            currentAudioObjectUrl = null;
-          }
-          reject(err);
-        };
-
-        responseAudio.onended = cleanup;
-        responseAudio.onerror = () => fail(new Error('Audio playback failed'));
-
-        responseAudio.play().catch(err => {
-          fail(err);
-        });
+      await responseAudio.play().catch(err => {
+        console.warn('Autoplay blocked', err);
       });
+
+      responseAudio.onended = () => {
+        stopAvatarSpeechAnimation();
+        URL.revokeObjectURL(url);
+      };
     }
 
     async function speakWithSpeechSynthesis(text) {
@@ -422,22 +769,12 @@
         try {
           speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(text);
-          let animationController = null;
-          const emphasisRanges = computeEmphasisRanges(text);
           utterance.onstart = () => {
-            if (audioContext && audioContext.state === 'suspended') {
-              audioContext.resume().catch(() => {});
-            }
-            animationController = startAvatarSpeechAnimation();
+            startAvatarSpeechAnimation();
           };
           const finish = () => {
             stopAvatarSpeechAnimation();
             resolve();
-          };
-          utterance.onboundary = event => {
-            if (!animationController || event.name !== 'word') return;
-            const emphasised = emphasisRanges.some(range => event.charIndex >= range.start && event.charIndex < range.end);
-            animationController.setManualEmphasis(emphasised, emphasised ? 420 : 120);
           };
           utterance.onend = finish;
           utterance.onerror = finish;
@@ -464,3 +801,53 @@
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    ['mousedown', 'touchstart'].forEach(eventName => {
+      talkBtn.addEventListener(eventName, startRecording);
+    });
+
+    ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(eventName => {
+      talkBtn.addEventListener(eventName, stopRecording);
+    });
+
+    async function startRecording(event) {
+      if (!connected || !mediaRecorder) return;
+      event.preventDefault();
+      if (mediaRecorder.state === 'recording') return;
+      talkBtn.classList.add('recording');
+      talkBtn.textContent = 'Listening…';
+      updateStatus(true, 'Listening…');
+      chunks = [];
+      mediaRecorder.start();
+      isRecording = true;
+    }
+
+    function stopRecording(event) {
+      if (!connected || !mediaRecorder || !isRecording) return;
+      event.preventDefault();
+      talkBtn.classList.remove('recording');
+      talkBtn.textContent = 'Hold to talk';
+      isRecording = false;
+      if (mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+      }
+    }
+
+    window.addEventListener('beforeunload', () => {
+      if (audioContext) {
+        audioContext.close();
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+      }
+    });
+  </script>
+</body>
+</html>
