@@ -361,7 +361,7 @@
     ];
 
     const GEMINI_CHAT_MODEL = 'gemini-2.5-flash';
-    const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+    const GEMINI_TTS_MODEL = 'gemini-2.5-flash-tts';
     const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
     const GEMINI_TTS_SAMPLE_RATE = 24000;
     const GEMINI_TTS_CHANNELS = 1;
@@ -709,13 +709,13 @@
             parts: [{ text }]
           }
         ],
+        responseModalities: ['AUDIO'],
         generationConfig: {
-          responseModalities: ['AUDIO'],
-          responseMimeType: 'audio/pcm;rate=24000',
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Kore' }
-            }
+          responseMimeType: 'audio/wav;rate=24000'
+        },
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' }
           }
         }
       };
