@@ -1,20 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gemini Voice AI Console</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini Voice AI</title>
   <style>
     :root {
       color-scheme: only light;
-      --accent: #2662ff;
-      --accent-dark: #0c37c7;
-      --surface: #f5f7fb;
-      --border: #e2e8f0;
-      --text: #0f172a;
-      --muted: #64748b;
+      --accent: #2962ff;
+      --accent-dark: #0039cb;
+      --bg: #ffffff;
+      --text: #141414;
+      --muted: #667085;
       font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #ffffff;
     }
 
     * {
@@ -24,783 +22,828 @@
     body {
       margin: 0;
       min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: clamp(24px, 6vw, 64px);
-      background: #ffffff;
+      background: var(--bg);
       color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+      padding: clamp(16px, 5vw, 48px);
     }
 
-    .shell {
-      width: min(1080px, 100%);
-      background: var(--surface);
-      border-radius: 32px;
-      box-shadow: 0 32px 80px rgba(15, 23, 42, 0.16);
-      display: grid;
-      grid-template-columns: 360px 1fr;
+    .app {
+      width: min(960px, 100%);
+      background: #f6f7fb;
+      border-radius: 28px;
+      box-shadow: 0 32px 70px rgba(20, 20, 43, 0.18);
       overflow: hidden;
-      border: 1px solid rgba(15, 23, 42, 0.04);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
     }
 
-    @media (max-width: 1024px) {
-      .shell {
-        grid-template-columns: 1fr;
-      }
-      .panel.left {
-        border-right: none !important;
-        border-bottom: 1px solid rgba(15, 23, 42, 0.04);
-      }
+    header {
+      padding: 28px clamp(24px, 5vw, 48px);
+      background: linear-gradient(120deg, rgba(41, 98, 255, 0.16), rgba(6, 64, 255, 0));
+      border-bottom: 1px solid rgba(15, 23, 42, 0.06);
     }
 
-    .panel {
-      padding: clamp(28px, 4vw, 48px);
-      position: relative;
-    }
-
-    .panel.left {
-      background: #ffffff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 28px;
-      border-right: 1px solid rgba(15, 23, 42, 0.04);
-    }
-
-    .panel.right {
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: clamp(1.8rem, 2vw + 1rem, 2.6rem);
+    header h1 {
+      margin: 0 0 6px;
+      font-size: clamp(1.6rem, 2.4vw + 1rem, 2.4rem);
+      font-weight: 700;
       letter-spacing: -0.04em;
     }
 
-    p.lead {
+    header p {
       margin: 0;
       color: var(--muted);
-      font-size: 1rem;
-      line-height: 1.6;
-    }
-
-    label {
-      font-weight: 600;
       font-size: 0.95rem;
-      color: var(--muted);
     }
 
-    .input-row {
+    .connection {
       display: flex;
-      gap: 12px;
       flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+      align-items: center;
     }
 
-    input[type="password"] {
-      flex: 1 1 260px;
-      padding: 14px 16px;
-      border-radius: 16px;
-      border: 1px solid var(--border);
+    .connection input {
+      flex: 1 1 220px;
+      padding: 12px 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
       background: #fff;
       font-size: 0.95rem;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
-    input[type="password"]:focus {
-      outline: none;
-      border-color: rgba(38, 98, 255, 0.75);
-      box-shadow: 0 0 0 4px rgba(38, 98, 255, 0.18);
-    }
-
-    button {
+    .connection button {
       border: none;
-      border-radius: 16px;
-      padding: 14px 22px;
-      font-size: 0.95rem;
+      border-radius: 14px;
+      padding: 12px 20px;
       font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    #connectBtn {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 12px 22px rgba(41, 98, 255, 0.28);
+    }
+
+    #connectBtn:disabled {
+      background: rgba(41, 98, 255, 0.42);
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    #connectBtn:not(:disabled):hover {
+      transform: translateY(-1px);
+      box-shadow: 0 18px 28px rgba(41, 98, 255, 0.34);
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #d1d5db;
+      box-shadow: 0 0 0 4px rgba(209, 213, 219, 0.35);
+      transition: background 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .status-indicator.online {
+      background: #10b981;
+      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.25);
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(260px, 340px) 1fr;
+      gap: clamp(24px, 4vw, 48px);
+      padding: clamp(24px, 5vw, 48px);
+    }
+
+    @media (max-width: 880px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+      .avatar-stage {
+        order: -1;
+        margin-inline: auto;
+      }
+    }
+
+    .avatar-stage {
+      background: #fff;
+      border-radius: 24px;
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      min-height: 320px;
+      overflow: hidden;
+    }
+
+    .avatar-stage::after {
+      content: "";
+      position: absolute;
+      inset: 24px;
+      border-radius: 20px;
+      background: radial-gradient(circle at top, rgba(41, 98, 255, 0.12), transparent 60%);
+      z-index: 0;
+    }
+
+    .avatar-stage img {
+      width: min(260px, 100%);
+      object-fit: contain;
+      position: relative;
+      z-index: 1;
+      filter: drop-shadow(0 24px 50px rgba(15, 23, 42, 0.25));
+      transition: transform 0.4s ease;
+    }
+
+    .avatar-stage img.speaking {
+      transform: translateY(-6px) scale(1.02);
+    }
+
+    .conversation-panel {
+      background: #fff;
+      border-radius: 24px;
+      padding: clamp(20px, 4vw, 32px);
+      display: flex;
+      flex-direction: column;
+      min-height: 320px;
+      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 8px;
+      scrollbar-width: thin;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .messages::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .messages::-webkit-scrollbar-thumb {
+      background: rgba(41, 98, 255, 0.3);
+      border-radius: 999px;
+    }
+
+    .bubble {
+      padding: 14px 16px;
+      border-radius: 18px;
+      line-height: 1.48;
+      max-width: 100%;
+      word-break: break-word;
+      font-size: 0.98rem;
+      animation: fadeUp 0.35s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .bubble.user {
+      align-self: flex-end;
+      background: rgba(41, 98, 255, 0.14);
+      color: #1a2a6c;
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble.ai {
+      align-self: flex-start;
+      background: rgba(15, 23, 42, 0.05);
+      border-bottom-left-radius: 4px;
+    }
+
+    .bubble-text {
+      display: block;
+    }
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .transcript-note {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    footer {
+      padding: clamp(16px, 4vw, 28px) clamp(24px, 5vw, 48px) 32px;
+      border-top: 1px solid rgba(15, 23, 42, 0.06);
+      background: #f8f9ff;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .talk-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #talkBtn {
+      border: none;
+      border-radius: 999px;
+      padding: 18px 42px;
+      font-size: 1rem;
+      font-weight: 600;
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 18px 36px rgba(41, 98, 255, 0.25);
       cursor: pointer;
       transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
     }
 
-    button.primary {
-      background: var(--accent);
-      color: #fff;
-      box-shadow: 0 14px 32px rgba(38, 98, 255, 0.28);
-    }
-
-    button.primary:disabled {
-      background: rgba(38, 98, 255, 0.38);
+    #talkBtn:disabled {
+      background: rgba(41, 98, 255, 0.38);
       cursor: not-allowed;
       box-shadow: none;
-      transform: none;
     }
 
-    button.primary:not(:disabled):hover {
-      transform: translateY(-1px);
-      box-shadow: 0 16px 34px rgba(38, 98, 255, 0.34);
+    #talkBtn.recording {
+      background: #ef4444;
+      box-shadow: 0 18px 32px rgba(239, 68, 68, 0.35);
     }
 
-    button.talk {
-      width: 100%;
-      font-size: 1.05rem;
-      padding: 18px 22px;
-      background: #0f172a;
-      color: #fff;
-      letter-spacing: 0.02em;
-      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.25);
-    }
-
-    button.talk:disabled {
-      background: rgba(15, 23, 42, 0.28);
-      box-shadow: none;
-      cursor: not-allowed;
-    }
-
-    .avatar-frame {
-      position: relative;
-      width: min(320px, 100%);
-      aspect-ratio: 3 / 4;
-      background: #ffffff;
-      border-radius: 28px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06), 0 40px 80px rgba(15, 23, 42, 0.2);
-      overflow: hidden;
-    }
-
-    .avatar-frame::after {
-      content: "";
-      position: absolute;
-      inset: 18px;
-      border-radius: 22px;
-      background: radial-gradient(circle at 40% 20%, rgba(38, 98, 255, 0.12), transparent 65%);
-      z-index: 0;
-    }
-
-    .avatar-frame img {
-      width: 88%;
-      max-width: 320px;
-      height: auto;
-      position: relative;
-      z-index: 1;
-      filter: drop-shadow(0 32px 60px rgba(15, 23, 42, 0.32));
-      transition: transform 0.24s ease;
-    }
-
-    .avatar-frame img.speaking {
-      transform: translateY(-6px) scale(1.03);
-    }
-
-    .status {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 0.95rem;
-      color: var(--muted);
-    }
-
-    .dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #cbd5f5;
-      box-shadow: 0 0 0 6px rgba(203, 213, 225, 0.45);
-      transition: background 0.3s ease, box-shadow 0.3s ease;
-    }
-
-    .dot.online {
-      background: #34d399;
-      box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.25);
-    }
-
-    .log {
-      flex: 1;
-      min-height: 360px;
-      background: rgba(255, 255, 255, 0.9);
-      border-radius: 24px;
-      border: 1px solid rgba(15, 23, 42, 0.05);
-      padding: clamp(20px, 3vw, 32px);
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
-      overflow-y: auto;
-      scrollbar-width: thin;
-    }
-
-    .log::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    .log::-webkit-scrollbar-thumb {
-      background: rgba(15, 23, 42, 0.12);
-      border-radius: 999px;
-    }
-
-    .entry {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      background: rgba(38, 98, 255, 0.05);
-      border-radius: 18px;
-      padding: 16px 18px;
-      box-shadow: inset 0 0 0 1px rgba(38, 98, 255, 0.06);
-    }
-
-    .entry.ai {
-      background: rgba(15, 23, 42, 0.05);
-      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
-    }
-
-    .entry h3 {
-      margin: 0;
-      font-size: 0.85rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .entry p {
-      margin: 0;
-      font-size: 1rem;
-      line-height: 1.6;
-      color: var(--text);
+    #talkBtn:not(:disabled):active {
+      transform: scale(0.97);
     }
 
     .hint {
-      margin: 0;
-      font-size: 0.85rem;
       color: var(--muted);
-      text-align: center;
+      font-size: 0.85rem;
     }
 
-    .hidden {
-      display: none !important;
-    }
-
-    .error {
-      color: #ef4444;
-      font-weight: 600;
-    }
-
-    .loader {
-      width: 56px;
-      height: 56px;
-      border-radius: 50%;
-      border: 6px solid rgba(38, 98, 255, 0.12);
-      border-top-color: rgba(38, 98, 255, 0.75);
-      animation: spin 1s linear infinite;
-      margin: 32px auto 0;
-    }
-
-    @keyframes spin {
-      to {
-        transform: rotate(360deg);
-      }
+    audio {
+      display: none;
     }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <section class="panel left">
-      <div class="avatar-frame">
-        <img id="avatar" src="arm_behind_mouth_closed.png" alt="AI avatar" />
-      </div>
-      <div class="status">
-        <div class="dot" id="statusDot"></div>
-        <span id="statusText">Disconnected</span>
-      </div>
-      <button class="talk" id="talkBtn" disabled>Hold to talk</button>
-      <p class="hint">Press and hold while speaking. Release to send your message.</p>
-      <div class="hint" id="errorText"></div>
-    </section>
-    <section class="panel right">
-      <div>
-        <h1>Gemini Voice Link</h1>
-        <p class="lead">Authenticate with your Gemini API key, then converse naturally by holding the microphone button. Speech flows to Gemini, which listens, reasons, and replies with lifelike synthesis.</p>
-      </div>
-      <div>
-        <label for="apiKey">Gemini API key</label>
-        <div class="input-row">
-          <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
-          <button class="primary" id="connectBtn">Connect</button>
+  <div class="app">
+    <header>
+      <h1>Gemini Voice AI</h1>
+      <p>Connect to Gemini 2.5 Flash, hold to speak, and listen to the model respond.</p>
+      <div class="connection">
+        <input type="password" id="apiKey" placeholder="Enter your Gemini API key" autocomplete="off">
+        <button id="connectBtn">Connect</button>
+        <div class="status-bar">
+          <span class="status-indicator" id="statusIndicator"></span>
+          <span id="statusText">Disconnected</span>
         </div>
       </div>
-      <div class="status" id="sessionStatus">
-        <div class="loader hidden" id="loader"></div>
-        <span id="sessionText">Awaiting connection.</span>
+    </header>
+
+    <main>
+      <section class="avatar-stage">
+        <img id="avatar" alt="AI avatar" src="a7.png">
+      </section>
+      <section class="conversation-panel">
+        <div class="messages" id="messages"></div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="talk-controls">
+        <button id="talkBtn" disabled>Hold to talk</button>
+        <span class="hint" id="hintText">Connect with your API key to begin.</span>
       </div>
-      <div class="log" id="conversation">
-        <div class="hint">Your conversation transcript will appear here.</div>
-      </div>
-    </section>
+    </footer>
   </div>
+
+  <audio id="responseAudio"></audio>
+
   <script>
-    const STARTUP_FRAMES = [
-      'a1.png',
-      'a2.png',
-      'a3.png',
-      'a4.png',
-      'a5.png',
-      'a6.png',
-      'a7.png'
+    const apiKeyInput = document.getElementById('apiKey');
+    const connectBtn = document.getElementById('connectBtn');
+    const talkBtn = document.getElementById('talkBtn');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const statusText = document.getElementById('statusText');
+    const messagesEl = document.getElementById('messages');
+    const hintText = document.getElementById('hintText');
+    const avatarEl = document.getElementById('avatar');
+    const responseAudio = document.getElementById('responseAudio');
+
+    const startupFrames = ['a1.png', 'a2.png', 'a3.png', 'a4.png', 'a5.png', 'a6.png', 'a7.png'];
+    const idleFrame = 'arm_behind_mouth_closed.png';
+    const speakingFrames = [
+      'arm_out_mouth_open.png',
+      'arm_out_mouth_closed.png',
+      'arm_behind_mouth_open.png',
+      'arm_behind_mouth_closed.png'
     ];
 
-    const POSES = {
-      idle: {
-        closed: 'arm_behind_mouth_closed.png',
-        open: 'arm_behind_mouth_open.png'
-      },
-      expressive: {
-        closed: 'arm_out_mouth_closed.png',
-        open: 'arm_out_mouth_open.png'
-      }
-    };
+    const GEMINI_CHAT_MODEL = 'gemini-2.5-flash';
+    const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+    const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-    const GEMINI_MODELS = {
-      chat: 'models/gemini-2.5-flash',
-      tts: 'models/gemini-2.5-flash-preview-tts'
-    };
+    const imageCache = new Map();
+    [...startupFrames, idleFrame, ...speakingFrames].forEach(src => {
+      const img = new Image();
+      img.src = src;
+      imageCache.set(src, img);
+    });
 
-    const apiBase = 'https://generativelanguage.googleapis.com/v1beta';
-    const avatarEl = document.getElementById('avatar');
-    const statusDot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
-    const talkBtn = document.getElementById('talkBtn');
-    const connectBtn = document.getElementById('connectBtn');
-    const apiKeyInput = document.getElementById('apiKey');
-    const sessionText = document.getElementById('sessionText');
-    const loader = document.getElementById('loader');
-    const conversationEl = document.getElementById('conversation');
-    const errorText = document.getElementById('errorText');
-
-    let audioContext;
-    let mediaRecorder;
-    let mediaStream;
-    let isConnected = false;
-    let isRecording = false;
-    let isProcessing = false;
-    let activeSpeechAnimation;
-    let currentPose = 'idle';
-    let currentMouthOpen = false;
-    let conversationHistory = [];
     let apiKey = '';
+    let connected = false;
+    let mediaStream = null;
+    let mediaRecorder = null;
+    let chunks = [];
+    let isRecording = false;
+    let speakingInterval = null;
+    let audioContext = null;
+    let recordedMimeType = 'audio/webm';
 
-    function setStatus({ online = false, text = '' }) {
-      statusDot.classList.toggle('online', online);
+    const systemInstruction = {
+      role: 'system',
+      parts: [{ text: 'You are a futuristic but friendly AI guide. Keep answers under 120 words and respond conversationally to the user.' }]
+    };
+
+    const conversationHistory = [];
+
+    function updateStatus(online, text) {
+      statusIndicator.classList.toggle('online', Boolean(online));
       statusText.textContent = text;
     }
 
-    function setSessionMessage(message, loading = false) {
-      sessionText.textContent = message;
-      loader.classList.toggle('hidden', !loading);
-    }
-
-    function showError(message = '') {
-      errorText.textContent = message;
-      errorText.classList.toggle('error', Boolean(message));
-    }
-
-    async function ensureAudioContext() {
-      if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+    function addMessage(role, text, note) {
+      const bubble = document.createElement('div');
+      bubble.className = `bubble ${role}`;
+      const textEl = document.createElement('span');
+      textEl.className = 'bubble-text';
+      textEl.textContent = text;
+      bubble.appendChild(textEl);
+      let noteEl = null;
+      if (note) {
+        noteEl = document.createElement('div');
+        noteEl.className = 'transcript-note';
+        noteEl.textContent = note;
+        bubble.appendChild(noteEl);
       }
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
+      messagesEl.appendChild(bubble);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return { bubble, textEl, noteEl };
+    }
+
+    function setAvatar(frame, speaking = false) {
+      avatarEl.src = frame;
+      avatarEl.classList.toggle('speaking', speaking);
+    }
+
+    function startAvatarSpeechAnimation() {
+      if (speakingInterval) {
+        clearInterval(speakingInterval);
       }
-      return audioContext;
+      let frameIndex = 0;
+      setAvatar(speakingFrames[frameIndex], true);
+      speakingInterval = setInterval(() => {
+        frameIndex = (frameIndex + 1) % speakingFrames.length;
+        const frame = speakingFrames[frameIndex];
+        const mouthOpen = frame.includes('open');
+        setAvatar(frame, mouthOpen);
+      }, 180);
     }
 
-    function playStartupSound() {
-      return ensureAudioContext().then(ctx => {
-        return new Promise(resolve => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sawtooth';
-          const now = ctx.currentTime;
-          osc.frequency.setValueAtTime(220, now);
-          osc.frequency.exponentialRampToValueAtTime(880, now + 0.9);
-          gain.gain.setValueAtTime(0.0001, now);
-          gain.gain.exponentialRampToValueAtTime(0.4, now + 0.05);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
-          osc.connect(gain).connect(ctx.destination);
-          osc.start(now);
-          osc.stop(now + 1.25);
-          osc.onended = resolve;
-        });
-      });
-    }
-
-    function playStartupAnimation() {
-      return new Promise(resolve => {
-        let index = 0;
-        const nextFrame = () => {
-          avatarEl.src = STARTUP_FRAMES[index];
-          index += 1;
-          if (index < STARTUP_FRAMES.length) {
-            setTimeout(nextFrame, 110);
-          } else {
-            setTimeout(() => {
-              setAvatarPose('idle', false);
-              resolve();
-            }, 160);
-          }
-        };
-        nextFrame();
-      });
-    }
-
-    function setAvatarPose(pose = 'idle', mouthOpen = false) {
-      currentPose = pose;
-      currentMouthOpen = mouthOpen;
-      const asset = POSES[pose][mouthOpen ? 'open' : 'closed'];
-      avatarEl.src = asset;
-      avatarEl.classList.toggle('speaking', mouthOpen);
-    }
-
-    function stopSpeakingAnimation() {
-      if (activeSpeechAnimation) {
-        cancelAnimationFrame(activeSpeechAnimation);
-        activeSpeechAnimation = null;
+    function stopAvatarSpeechAnimation() {
+      if (speakingInterval) {
+        clearInterval(speakingInterval);
+        speakingInterval = null;
       }
-      setAvatarPose('idle', false);
+      setAvatar(idleFrame, false);
     }
 
-    function startSpeakingAnimation(analyser) {
-      const buffer = new Uint8Array(analyser.fftSize);
-      let mouthToggle = false;
-      const animate = () => {
-        analyser.getByteTimeDomainData(buffer);
-        let sum = 0;
-        for (let i = 0; i < buffer.length; i++) {
-          const deviation = buffer[i] - 128;
-          sum += deviation * deviation;
+    async function playStartupSequence() {
+      await playStartupSound();
+      for (let i = 0; i < startupFrames.length; i++) {
+        setAvatar(startupFrames[i]);
+        await wait(160);
+      }
+      setAvatar(idleFrame);
+    }
+
+    async function playStartupSound() {
+      try {
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
         }
-        const rms = Math.sqrt(sum / buffer.length) / 128;
-        const loud = rms > 0.28;
-        const mouthActive = rms > 0.045;
-        if (mouthActive) {
-          mouthToggle = !mouthToggle;
-          setAvatarPose(loud ? 'expressive' : 'idle', mouthToggle);
+        const osc = audioContext.createOscillator();
+        const osc2 = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(320, audioContext.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, audioContext.currentTime + 1.1);
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(120, audioContext.currentTime);
+        osc2.frequency.linearRampToValueAtTime(420, audioContext.currentTime + 1.1);
+        gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.6, audioContext.currentTime + 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 1.2);
+        osc.connect(gain);
+        osc2.connect(gain);
+        gain.connect(audioContext.destination);
+        osc.start();
+        osc2.start();
+        osc.stop(audioContext.currentTime + 1.25);
+        osc2.stop(audioContext.currentTime + 1.25);
+      } catch (err) {
+        console.warn('Startup sound failed', err);
+      }
+    }
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    connectBtn.addEventListener('click', async () => {
+      if (connected) {
+        disconnect();
+        return;
+      }
+
+      const key = apiKeyInput.value.trim();
+      if (!key) {
+        alert('Please enter your Gemini API key.');
+        return;
+      }
+      if (typeof MediaRecorder === 'undefined') {
+        alert('Media recording is not supported in this browser. Try using the latest version of Chrome, Edge, or Firefox.');
+        connectBtn.disabled = false;
+        hintText.textContent = 'MediaRecorder is unavailable in this browser.';
+        return;
+      }
+      apiKey = key;
+      connectBtn.disabled = true;
+      hintText.textContent = 'Requesting microphone access…';
+
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        console.error(err);
+        alert('Microphone permission is required to use voice chat.');
+        connectBtn.disabled = false;
+        hintText.textContent = 'Microphone permission denied.';
+        return;
+      }
+
+      await playStartupSequence();
+      setupRecorder();
+      connected = true;
+      connectBtn.textContent = 'Disconnect';
+      connectBtn.disabled = false;
+      talkBtn.disabled = false;
+      hintText.textContent = 'Hold the button, speak, then release to send.';
+      updateStatus(true, 'Ready');
+      conversationHistory.length = 0;
+    });
+
+    function disconnect() {
+      connected = false;
+      apiKey = '';
+      connectBtn.textContent = 'Connect';
+      talkBtn.disabled = true;
+      connectBtn.disabled = false;
+      hintText.textContent = 'Connect with your API key to begin.';
+      updateStatus(false, 'Disconnected');
+      stopAvatarSpeechAnimation();
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+      }
+      conversationHistory.length = 0;
+    }
+
+    function setupRecorder() {
+      if (!mediaStream) return;
+      const preferredTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/mp4'
+      ];
+      let chosenType = null;
+      if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
+        chosenType = preferredTypes.find(type => MediaRecorder.isTypeSupported(type)) || null;
+      }
+
+      try {
+        if (chosenType) {
+          mediaRecorder = new MediaRecorder(mediaStream, { mimeType: chosenType });
+          recordedMimeType = chosenType;
         } else {
-          setAvatarPose('idle', false);
+          mediaRecorder = new MediaRecorder(mediaStream);
+          recordedMimeType = mediaRecorder.mimeType || recordedMimeType;
         }
-        activeSpeechAnimation = requestAnimationFrame(animate);
+      } catch (error) {
+        console.error('Failed to initialize recorder', error);
+        alert('Your browser was unable to start audio recording. Try another browser or update to the latest version.');
+        hintText.textContent = 'Recording failed to start.';
+        connectBtn.disabled = false;
+        talkBtn.disabled = true;
+        return;
+      }
+
+      mediaRecorder.ondataavailable = event => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
       };
-      animate();
+      mediaRecorder.onstop = async () => {
+        if (!chunks.length) return;
+        const blob = new Blob(chunks, { type: recordedMimeType || 'audio/webm' });
+        chunks = [];
+        await handleRecording(blob);
+      };
     }
 
-    async function playAudioFromBase64(base64Audio) {
-      const ctx = await ensureAudioContext();
-      const binary = atob(base64Audio);
+    async function handleRecording(blob) {
+      updateStatus(true, 'Processing speech…');
+      const userEntry = addMessage('user', '…', 'Transcribing audio');
+      try {
+        const transcript = await transcribeWithGemini(blob);
+        if (!transcript) {
+          throw new Error('Transcription returned empty text.');
+        }
+        userEntry.textEl.textContent = transcript;
+        if (userEntry.noteEl) userEntry.noteEl.remove();
+        conversationHistory.push({ role: 'user', parts: [{ text: transcript }] });
+        updateStatus(true, 'Thinking…');
+        const aiEntry = addMessage('ai', 'Thinking…');
+        const responseText = await respondWithGemini();
+        if (!responseText) {
+          throw new Error('Model response did not include text.');
+        }
+        aiEntry.textEl.textContent = responseText;
+        await playGeminiAudio(responseText);
+        updateStatus(true, 'Ready');
+      } catch (err) {
+        console.error(err);
+        updateStatus(false, 'Error');
+        stopAvatarSpeechAnimation();
+        userEntry.textEl.textContent = 'Audio could not be processed.';
+        if (userEntry.noteEl) userEntry.noteEl.textContent = err.message || 'An unknown error occurred.';
+        addMessage('ai', 'I ran into a problem handling that message. Please try again.');
+      }
+    }
+
+    async function transcribeWithGemini(blob) {
+      const mimeType = blob.type || recordedMimeType || 'audio/webm';
+      const base64 = await blobToBase64(blob);
+      const body = {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: 'Please provide an accurate text transcript of the following audio.' },
+              { inlineData: { mimeType, data: base64 } }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: 'text/plain'
+        }
+      };
+
+      const response = await fetch(`${GEMINI_BASE_URL}/${encodeURIComponent(GEMINI_CHAT_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error('Transcription failed: ' + errorText);
+      }
+
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
+      return text || '';
+    }
+
+    async function respondWithGemini() {
+      const body = {
+        contents: cloneHistory(),
+        systemInstruction,
+        generationConfig: {
+          responseMimeType: 'text/plain'
+        }
+      };
+
+      const response = await fetch(`${GEMINI_BASE_URL}/${encodeURIComponent(GEMINI_CHAT_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error('Response failed: ' + errorText);
+      }
+
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
+      if (text) {
+        conversationHistory.push({ role: 'model', parts: [{ text }] });
+      }
+      return text || '';
+    }
+
+    function cloneHistory() {
+      return conversationHistory.map(item => ({
+        role: item.role,
+        parts: item.parts.map(part => ({ ...part }))
+      }));
+    }
+
+    async function playGeminiAudio(text) {
+      try {
+        const audioPart = await synthesizeWithGemini(text);
+        if (audioPart) {
+          await playResponseAudio(audioPart);
+          return;
+        }
+      } catch (err) {
+        console.warn('Gemini TTS unavailable, falling back to speech synthesis.', err);
+      }
+      await speakWithSpeechSynthesis(text);
+    }
+
+    async function synthesizeWithGemini(text) {
+      const body = {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text }]
+          }
+        ],
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' }
+          }
+        }
+      };
+
+      const response = await fetch(`${GEMINI_BASE_URL}/${encodeURIComponent(GEMINI_TTS_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error('TTS failed: ' + errorText);
+      }
+
+      const data = await response.json();
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      const inline = parts.find(part => part.inlineData && part.inlineData.data);
+      if (!inline) {
+        throw new Error('TTS response did not contain audio data.');
+      }
+      return {
+        data: inline.inlineData.data,
+        mimeType: inline.inlineData.mimeType || 'audio/wav'
+      };
+    }
+
+    async function playResponseAudio(audioPart) {
+      const buffer = base64ToArrayBuffer(audioPart.data);
+      const blob = new Blob([buffer], { type: audioPart.mimeType || 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      if (!responseAudio.paused) {
+        responseAudio.pause();
+        responseAudio.currentTime = 0;
+      }
+      if ('speechSynthesis' in window) {
+        speechSynthesis.cancel();
+      }
+      responseAudio.src = url;
+      startAvatarSpeechAnimation();
+
+      await responseAudio.play().catch(err => {
+        console.warn('Autoplay blocked', err);
+      });
+
+      responseAudio.onended = () => {
+        stopAvatarSpeechAnimation();
+        URL.revokeObjectURL(url);
+      };
+    }
+
+    async function speakWithSpeechSynthesis(text) {
+      if (!('speechSynthesis' in window) || !text) {
+        return;
+      }
+      return new Promise(resolve => {
+        try {
+          speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.onstart = () => {
+            startAvatarSpeechAnimation();
+          };
+          const finish = () => {
+            stopAvatarSpeechAnimation();
+            resolve();
+          };
+          utterance.onend = finish;
+          utterance.onerror = finish;
+          speechSynthesis.speak(utterance);
+        } catch (err) {
+          console.warn('Speech synthesis unavailable', err);
+          stopAvatarSpeechAnimation();
+          resolve();
+        }
+      });
+    }
+
+    function base64ToArrayBuffer(base64) {
+      const binary = atob(base64);
       const len = binary.length;
       const bytes = new Uint8Array(len);
       for (let i = 0; i < len; i++) {
         bytes[i] = binary.charCodeAt(i);
       }
-      const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-      const sampleCount = arrayBuffer.byteLength / 2;
-      const audioBuffer = ctx.createBuffer(1, sampleCount, 24000);
-      const channelData = audioBuffer.getChannelData(0);
-      const view = new DataView(arrayBuffer);
-      for (let i = 0; i < sampleCount; i++) {
-        const intSample = view.getInt16(i * 2, true);
-        channelData[i] = intSample / 32768;
-      }
-      return new Promise(resolve => {
-        const source = ctx.createBufferSource();
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 2048;
-        source.buffer = audioBuffer;
-        source.connect(analyser);
-        analyser.connect(ctx.destination);
-        source.onended = () => {
-          stopSpeakingAnimation();
-          resolve();
+      return bytes.buffer;
+    }
+
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
         };
-        setAvatarPose('idle', true);
-        startSpeakingAnimation(analyser);
-        source.start();
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
       });
     }
 
-    function appendMessage(role, content, transcript = '') {
-      const entry = document.createElement('div');
-      entry.className = `entry ${role}`;
-      const heading = document.createElement('h3');
-      heading.textContent = role === 'ai' ? 'Gemini' : 'You';
-      entry.appendChild(heading);
+    ['mousedown', 'touchstart'].forEach(eventName => {
+      talkBtn.addEventListener(eventName, startRecording);
+    });
 
-      if (transcript) {
-        const transcriptEl = document.createElement('p');
-        transcriptEl.innerHTML = `<strong>Transcript:</strong> ${transcript}`;
-        entry.appendChild(transcriptEl);
-      }
+    ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(eventName => {
+      talkBtn.addEventListener(eventName, stopRecording);
+    });
 
-      const body = document.createElement('p');
-      body.textContent = content;
-      entry.appendChild(body);
-
-      const emptyHint = conversationEl.querySelector('.hint');
-      if (emptyHint) {
-        emptyHint.remove();
-      }
-      conversationEl.appendChild(entry);
-      conversationEl.scrollTop = conversationEl.scrollHeight;
-      return entry;
-    }
-
-    function toBase64(arrayBuffer) {
-      let binary = '';
-      const bytes = new Uint8Array(arrayBuffer);
-      const chunk = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunk) {
-        const slice = bytes.subarray(i, i + chunk);
-        binary += String.fromCharCode.apply(null, slice);
-      }
-      return btoa(binary);
-    }
-
-    async function requestGeminiResponse(audioBlob) {
-      const arrayBuffer = await audioBlob.arrayBuffer();
-      const base64Audio = toBase64(arrayBuffer);
-      const contents = [...conversationHistory];
-      contents.push({
-        role: 'user',
-        parts: [
-          {
-            inlineData: {
-              mimeType: audioBlob.type || 'audio/webm;codecs=opus',
-              data: base64Audio
-            }
-          },
-          {
-            text: 'The previous parts contain the latest voice message. Transcribe it and reply naturally.'
-          }
-        ]
-      });
-
-      const response = await fetch(`${apiBase}/${GEMINI_MODELS.chat}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          systemInstruction: {
-            role: 'system',
-            parts: [
-              {
-                text: 'You are a realtime voice companion. Each user turn arrives as audio. Return a strict JSON object with keys "transcript" (transcribed user speech) and "reply" (your spoken response). Keep replies concise and conversational. Do not add extra text outside JSON.'
-              }
-            ]
-          },
-          contents
-        })
-      });
-
-      if (!response.ok) {
-        const detail = await response.text();
-        throw new Error(`Gemini request failed (${response.status}): ${detail}`);
-      }
-
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
-      if (!text) {
-        throw new Error('Gemini returned an empty response.');
-      }
-
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch (err) {
-        throw new Error('Gemini reply was not valid JSON: ' + text);
-      }
-
-      if (!parsed.reply) {
-        throw new Error('Gemini reply JSON missing "reply" field.');
-      }
-
-      return parsed;
-    }
-
-    async function speakWithGemini(text) {
-      const response = await fetch(`${apiBase}/${GEMINI_MODELS.tts}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                { text }
-              ]
-            }
-          ],
-          generationConfig: {
-            responseModalities: ['AUDIO']
-          },
-          audioConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: 'Kore'
-              }
-            }
-          }
-        })
-      });
-
-      if (!response.ok) {
-        const detail = await response.text();
-        throw new Error(`TTS request failed (${response.status}): ${detail}`);
-      }
-
-      const data = await response.json();
-      const audioPart = data.candidates?.[0]?.content?.parts?.find(part => part.inlineData?.data);
-      const base64 = audioPart?.inlineData?.data;
-      if (!base64) {
-        throw new Error('Gemini TTS response missing audio data.');
-      }
-      await playAudioFromBase64(base64);
-    }
-
-    async function connect() {
-      apiKey = apiKeyInput.value.trim();
-      if (!apiKey) {
-        showError('Enter your Gemini API key first.');
-        return;
-      }
-      connectBtn.disabled = true;
-      apiKeyInput.disabled = true;
-      showError('');
-      setSessionMessage('Spinning up the interface…', true);
-      setStatus({ online: false, text: 'Connecting…' });
-      try {
-        await ensureAudioContext();
-        await playStartupSound();
-        await playStartupAnimation();
-        setStatus({ online: true, text: 'Connected to Gemini' });
-        setSessionMessage('Hold the button and speak to talk with Gemini.');
-        talkBtn.disabled = false;
-        isConnected = true;
-      } catch (err) {
-        showError(err.message);
-        connectBtn.disabled = false;
-        apiKeyInput.disabled = false;
-        setSessionMessage('Connection failed. Check your API key and try again.');
-        setStatus({ online: false, text: 'Disconnected' });
-      } finally {
-        loader.classList.add('hidden');
-      }
-    }
-
-    async function startRecording() {
-      if (!isConnected || isProcessing) return;
-      showError('');
-      setSessionMessage('Listening… release to send.', false);
+    async function startRecording(event) {
+      if (!connected || !mediaRecorder) return;
+      event.preventDefault();
+      if (mediaRecorder.state === 'recording') return;
+      talkBtn.classList.add('recording');
       talkBtn.textContent = 'Listening…';
-      if (!mediaStream) {
-        try {
-          mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } catch (err) {
-          showError('Microphone permission is required to talk.');
-          setSessionMessage('Grant microphone access to continue.');
-          talkBtn.textContent = 'Hold to talk';
-          isRecording = false;
-          talkBtn.disabled = false;
-          return;
-        }
-      }
-      mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm;codecs=opus' });
-      const chunks = [];
-      mediaRecorder.ondataavailable = evt => {
-        if (evt.data && evt.data.size > 0) {
-          chunks.push(evt.data);
-        }
-      };
-      mediaRecorder.onstop = () => handleRecordingStop(new Blob(chunks, { type: 'audio/webm;codecs=opus' }));
+      updateStatus(true, 'Listening…');
+      chunks = [];
       mediaRecorder.start();
       isRecording = true;
     }
 
-    async function handleRecordingStop(blob) {
-      if (!isRecording) return;
-      isRecording = false;
+    function stopRecording(event) {
+      if (!connected || !mediaRecorder || !isRecording) return;
+      event.preventDefault();
+      talkBtn.classList.remove('recording');
       talkBtn.textContent = 'Hold to talk';
-      talkBtn.disabled = true;
-      isProcessing = true;
-      setSessionMessage('Sending audio to Gemini…', true);
-      const placeholder = appendMessage('user', 'Processing your voice message…');
-
-      try {
-        const result = await requestGeminiResponse(blob);
-        const transcript = result.transcript || '(no transcript)';
-        const reply = result.reply.trim();
-        conversationHistory.push({ role: 'user', parts: [{ text: transcript }] });
-        conversationHistory.push({ role: 'model', parts: [{ text: reply }] });
-        const body = placeholder.querySelector('p:last-child');
-        if (body) {
-          body.textContent = transcript;
-        }
-        appendMessage('ai', reply);
-        setSessionMessage('Speaking…', true);
-        await speakWithGemini(reply);
-        setSessionMessage('Conversation ready. Hold to speak again.');
-      } catch (err) {
-        console.error(err);
-        showError(err.message || 'Something went wrong.');
-        setSessionMessage('Try again when ready.');
-        const body = placeholder?.querySelector('p:last-child');
-        if (body) {
-          body.textContent = 'We could not process that voice message.';
-        }
-      } finally {
-        isProcessing = false;
-        talkBtn.disabled = false;
-        loader.classList.add('hidden');
-        stopSpeakingAnimation();
+      isRecording = false;
+      if (mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
       }
     }
-
-    function stopRecording() {
-      if (!isRecording || !mediaRecorder) return;
-      setSessionMessage('Processing…', true);
-      mediaRecorder.stop();
-    }
-
-    connectBtn.addEventListener('click', () => {
-      if (!isConnected) {
-        connect();
-      }
-    });
-
-    talkBtn.addEventListener('pointerdown', () => {
-      if (!isConnected || isProcessing) return;
-      startRecording();
-    });
-
-    talkBtn.addEventListener('pointerup', () => {
-      if (isRecording) {
-        stopRecording();
-      }
-    });
-
-    talkBtn.addEventListener('pointerleave', () => {
-      if (isRecording) {
-        stopRecording();
-      }
-    });
-
-    talkBtn.addEventListener('pointercancel', () => {
-      if (isRecording) {
-        stopRecording();
-      }
-    });
 
     window.addEventListener('beforeunload', () => {
+      if (audioContext) {
+        audioContext.close();
+      }
       if (mediaStream) {
         mediaStream.getTracks().forEach(track => track.stop());
       }
