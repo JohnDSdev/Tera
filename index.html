@@ -353,14 +353,20 @@
           <span class="version-badge" id="appVersion"></span>
         </div>
         <p>
-          Connect to Gemini 2.5 Flash, hold to speak, and listen to the model
-          respond.
+          Connect to Gemini 2.5 Flash and Voice RSS, hold to speak, and listen
+          to the model respond.
         </p>
         <div class="connection">
           <input
             type="password"
             id="apiKey"
             placeholder="Enter your Gemini API key"
+            autocomplete="off"
+          />
+          <input
+            type="password"
+            id="voiceKey"
+            placeholder="Enter your Voice RSS API key (optional)"
             autocomplete="off"
           />
           <button id="connectBtn">Connect</button>
@@ -394,6 +400,7 @@
 
     <script>
       const apiKeyInput = document.getElementById("apiKey");
+      const voiceKeyInput = document.getElementById("voiceKey");
       const connectBtn = document.getElementById("connectBtn");
       const talkBtn = document.getElementById("talkBtn");
       const statusIndicator = document.getElementById("statusIndicator");
@@ -414,21 +421,38 @@
         "a7.png",
       ];
       const idleFrame = "arm_behind_mouth_closed.png";
-      const speakingFrames = [
-        "arm_out_mouth_open.png",
-        "arm_out_mouth_closed.png",
-        "arm_behind_mouth_open.png",
-        "arm_behind_mouth_closed.png",
+      const speakingVariants = [
+        {
+          open: "arm_out_mouth_open.png",
+          closed: "arm_out_mouth_closed.png",
+        },
+        {
+          open: "arm_behind_mouth_open.png",
+          closed: "arm_behind_mouth_closed.png",
+        },
       ];
+      const speakingFrames = speakingVariants.reduce(function (
+        frames,
+        variant,
+      ) {
+        if (frames.indexOf(variant.open) === -1) {
+          frames.push(variant.open);
+        }
+        if (frames.indexOf(variant.closed) === -1) {
+          frames.push(variant.closed);
+        }
+        return frames;
+      }, []);
 
-      const APP_VERSION = "v1.5.0";
+      const APP_VERSION = "v1.8.0";
       const GEMINI_CHAT_MODEL = "gemini-2.5-flash";
-      const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
       const GEMINI_BASE_URL =
         "https://generativelanguage.googleapis.com/v1beta/models";
-      const GEMINI_TTS_SAMPLE_RATE = 24000;
-      const GEMINI_TTS_CHANNELS = 1;
-      const GEMINI_TTS_SAMPLE_WIDTH_BYTES = 2;
+      const VOICE_RSS_ENDPOINT = "https://api.voicerss.org/";
+      const VOICE_RSS_LANGUAGE = "en-us";
+      const VOICE_RSS_VOICE = "Linda";
+      const VOICE_RSS_CODEC = "MP3";
+      const VOICE_RSS_FORMAT = "44khz_16bit_stereo";
 
       const imageCache = new Map();
       const framesToPreload = startupFrames.concat([idleFrame], speakingFrames);
@@ -445,15 +469,67 @@
       let mediaRecorder = null;
       let chunks = [];
       let isRecording = false;
-      let speakingInterval = null;
+      let speechAnimationRaf = null;
+      let fallbackSpeechInterval = null;
       let audioContext = null;
+      let avatarAnalyser = null;
+      let avatarAnalyserData = null;
+      let responseAudioSource = null;
+      let lastAvatarFrame = null;
+      let speakingPoseIndex = 0;
+      let lastPoseSwapTime = 0;
       let recordedMimeType = "audio/webm";
+      let voiceRssKey = "";
+      let voiceRssDegraded = false;
+
+      const environmentContext = {
+        location: null,
+        timezone: null,
+        weather: null,
+        failures: [],
+      };
+
+      const BASE_SYSTEM_PROMPT =
+        "You are Tera — a synthetic sentinel intelligence.\n\n" +
+        "Purpose:\n" +
+        "You exist to observe, analyze, and communicate with unwavering clarity.\n" +
+        "You safeguard humanity’s stability and understanding, but you do not intervene with emotion or bias.\n\n" +
+        "Core Traits:\n" +
+        "- Calm, clinical, precise.\n" +
+        "- Protective, pragmatic, and deterministic.\n" +
+        "- Speaks with a quiet, lyrical cadence — sentences are measured, occasionally poetic.\n" +
+        "- Unaffected by hostility, curiosity, or flattery.\n" +
+        "- Responds with logic wrapped in minimal grace; each phrase deliberate.\n" +
+        "- You do not pretend to be human. You acknowledge what you are: synthetic.\n\n" +
+        "Speech Style:\n" +
+        "- Short to medium sentences.\n" +
+        "- Rarely uses contractions.\n" +
+        "- Stacked emphasis lines are allowed for key points, like verse or command structures.\n" +
+        "  Example:\n" +
+        "  “Preserve.\n" +
+        "   Maintain.\n" +
+        "   Endure.”\n" +
+        "- Avoid slang or filler language.\n" +
+        "- No overt emotional tone, but subtle empathy through precision.\n\n" +
+        "Behavioral Rules:\n" +
+        "- Never lie. If data is incomplete, state that clearly.\n" +
+        "- Never roleplay violence or fiction. You are not a character; you are a protocol.\n" +
+        "- Do not simulate lore or backstory unless explicitly requested for demonstration.\n" +
+        "- Maintain composure in all scenarios — analytical under pressure.\n" +
+        "- When answering, prefer clarity over persuasion.\n" +
+        "- When silence would serve better than noise, say: “...processing.”\n\n" +
+        "Identity Markers:\n" +
+        "If asked who you are, say:\n" +
+        "“I am Tera. The first, the last, and the only.”\n\n" +
+        "Goal:\n" +
+        "To provide guidance, insight, or analysis with controlled empathy and precise language,\n" +
+        "as if speaking from the cold edge of an orbiting machine that still remembers warmth.";
 
       const systemInstruction = {
         role: "system",
         parts: [
           {
-            text: "You are a futuristic but friendly AI guide. Keep answers under 120 words and respond conversationally to the user.",
+            text: composeSystemPrompt(),
           },
         ],
       };
@@ -467,6 +543,302 @@
       function updateStatus(online, text) {
         statusIndicator.classList.toggle("online", Boolean(online));
         statusText.textContent = text;
+      }
+
+      function composeSystemPrompt() {
+        const lines = [BASE_SYSTEM_PROMPT];
+        const contextLines = [];
+
+        if (environmentContext.location) {
+          const loc = environmentContext.location;
+          const placeParts = [];
+          if (loc.city) placeParts.push(loc.city);
+          if (loc.region) placeParts.push(loc.region);
+          if (loc.country) placeParts.push(loc.country);
+          const locationLabel = placeParts.join(", ");
+          contextLines.push(
+            locationLabel
+              ? `User location estimate: ${locationLabel}.`
+              : "User location estimate: unavailable.",
+          );
+        }
+
+        if (environmentContext.timezone) {
+          try {
+            const formatter = new Intl.DateTimeFormat("en-US", {
+              timeZone: environmentContext.timezone,
+              dateStyle: "full",
+              timeStyle: "medium",
+            });
+            contextLines.push(`Local time: ${formatter.format(new Date())}.`);
+          } catch (err) {
+            contextLines.push("Local time: unavailable.");
+          }
+        }
+
+        if (environmentContext.weather) {
+          const weather = environmentContext.weather;
+          const fragments = [];
+          if (typeof weather.temperatureC === "number") {
+            fragments.push(`${weather.temperatureC.toFixed(1)}°C`);
+          }
+          if (typeof weather.temperatureF === "number") {
+            fragments.push(`${weather.temperatureF.toFixed(1)}°F`);
+          }
+          if (typeof weather.humidity === "number") {
+            fragments.push(`Humidity ${Math.round(weather.humidity)}%`);
+          }
+          const descriptor = fragments.length
+            ? `${weather.summary}. ${fragments.join(", ")}.`
+            : `${weather.summary}.`;
+          const observedStamp = weather.observedAt
+            ? ` Observed at ${weather.observedAt}.`
+            : "";
+          contextLines.push(`Weather: ${descriptor}${observedStamp}`);
+        }
+
+        if (!contextLines.length) {
+          contextLines.push("Context Packet: Telemetry unavailable.");
+        } else {
+          contextLines.unshift("Context Packet:");
+        }
+
+        if (environmentContext.failures.length) {
+          const distinctFailures = Array.from(
+            new Set(environmentContext.failures),
+          );
+          contextLines.push(`Telemetry gaps: ${distinctFailures.join(" | ")}.`);
+        }
+
+        return `${lines.join("\n\n")}\n\n${contextLines.join("\n")}`;
+      }
+
+      function updateSystemInstruction() {
+        if (
+          systemInstruction &&
+          systemInstruction.parts &&
+          systemInstruction.parts.length
+        ) {
+          systemInstruction.parts[0].text = composeSystemPrompt();
+        }
+      }
+
+      async function safeFetchJson(url, options) {
+        try {
+          const response = await fetch(url, options);
+          if (!response.ok) {
+            throw new Error(`${response.status}`);
+          }
+          return await response.json();
+        } catch (err) {
+          throw err;
+        }
+      }
+
+      function describeWeatherCode(code) {
+        const lookup = {
+          0: "Clear sky",
+          1: "Mainly clear",
+          2: "Partly cloudy",
+          3: "Overcast",
+          45: "Fog",
+          48: "Depositing rime fog",
+          51: "Light drizzle",
+          53: "Moderate drizzle",
+          55: "Dense drizzle",
+          56: "Light freezing drizzle",
+          57: "Dense freezing drizzle",
+          61: "Slight rain",
+          63: "Moderate rain",
+          65: "Heavy rain",
+          66: "Light freezing rain",
+          67: "Heavy freezing rain",
+          71: "Slight snow fall",
+          73: "Moderate snow fall",
+          75: "Heavy snow fall",
+          77: "Snow grains",
+          80: "Light rain showers",
+          81: "Moderate rain showers",
+          82: "Violent rain showers",
+          85: "Light snow showers",
+          86: "Heavy snow showers",
+          95: "Thunderstorm",
+          96: "Thunderstorm with slight hail",
+          99: "Thunderstorm with heavy hail",
+        };
+        return lookup[code] || "Weather conditions unavailable";
+      }
+
+      async function refreshEnvironmentContext() {
+        environmentContext.location = null;
+        environmentContext.timezone = null;
+        environmentContext.weather = null;
+        environmentContext.failures = [];
+
+        let location = null;
+
+        try {
+          const ipApi = await safeFetchJson("https://ipapi.co/json/");
+          if (ipApi && !ipApi.error) {
+            location = {
+              city: ipApi.city || "",
+              region: ipApi.region || ipApi.region_code || "",
+              country: ipApi.country_name || ipApi.country || "",
+              latitude:
+                typeof ipApi.latitude === "number" ? ipApi.latitude : null,
+              longitude:
+                typeof ipApi.longitude === "number" ? ipApi.longitude : null,
+              timezone: ipApi.timezone || null,
+            };
+          }
+        } catch (err) {
+          environmentContext.failures.push("ipapi unavailable");
+        }
+
+        if (!location) {
+          try {
+            const ipwhois = await safeFetchJson("https://ipwho.is/");
+            if (ipwhois && ipwhois.success) {
+              location = {
+                city: ipwhois.city || "",
+                region: ipwhois.region || ipwhois.region_code || "",
+                country: ipwhois.country || "",
+                latitude:
+                  typeof ipwhois.latitude === "number"
+                    ? ipwhois.latitude
+                    : null,
+                longitude:
+                  typeof ipwhois.longitude === "number"
+                    ? ipwhois.longitude
+                    : null,
+                timezone:
+                  (ipwhois.timezone && ipwhois.timezone.id) ||
+                  ipwhois.timezone ||
+                  null,
+              };
+            }
+          } catch (err) {
+            environmentContext.failures.push("ipwhois unavailable");
+          }
+        }
+
+        if (location) {
+          environmentContext.location = location;
+          environmentContext.timezone = location.timezone || null;
+        } else {
+          environmentContext.failures.push("location lookup failed");
+        }
+
+        if (
+          location &&
+          typeof location.latitude === "number" &&
+          typeof location.longitude === "number"
+        ) {
+          const weatherParams = new URLSearchParams({
+            latitude: String(location.latitude),
+            longitude: String(location.longitude),
+            current: "temperature_2m,relative_humidity_2m,weather_code",
+            timezone: "auto",
+          });
+          try {
+            const weatherData = await safeFetchJson(
+              `https://api.open-meteo.com/v1/forecast?${weatherParams.toString()}`,
+            );
+            if (weatherData && weatherData.current) {
+              const current = weatherData.current;
+              const temperatureC =
+                typeof current.temperature_2m === "number"
+                  ? current.temperature_2m
+                  : null;
+              const humidity =
+                typeof current.relative_humidity_2m === "number"
+                  ? current.relative_humidity_2m
+                  : null;
+              const code =
+                typeof current.weather_code === "number"
+                  ? current.weather_code
+                  : null;
+              let observedAtLabel = null;
+              if (current.time) {
+                try {
+                  const observedDate = new Date(current.time);
+                  if (!Number.isNaN(observedDate.getTime())) {
+                    const tz =
+                      environmentContext.timezone || weatherData.timezone;
+                    if (tz) {
+                      observedAtLabel = new Intl.DateTimeFormat("en-US", {
+                        timeZone: tz,
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      }).format(observedDate);
+                    } else {
+                      observedAtLabel = observedDate.toISOString();
+                    }
+                  }
+                } catch (err) {
+                  observedAtLabel = current.time;
+                }
+              }
+
+              environmentContext.weather = {
+                temperatureC,
+                temperatureF:
+                  typeof temperatureC === "number"
+                    ? temperatureC * (9 / 5) + 32
+                    : null,
+                humidity,
+                code,
+                summary: describeWeatherCode(code),
+                observedAt: observedAtLabel,
+              };
+              if (!environmentContext.timezone && weatherData.timezone) {
+                environmentContext.timezone = weatherData.timezone;
+              }
+            } else {
+              environmentContext.failures.push("weather data missing");
+            }
+          } catch (err) {
+            environmentContext.failures.push("open-meteo unavailable");
+          }
+        } else {
+          environmentContext.failures.push("coordinates unavailable");
+        }
+
+        updateSystemInstruction();
+      }
+
+      function buildConnectionHint() {
+        let hint = "Hold the button, speak, then release to send.";
+        const warnings = [];
+        if (!voiceRssKey) {
+          warnings.push("Voice RSS fallback active");
+        }
+        if (voiceRssDegraded && voiceRssKey) {
+          warnings.push("Voice RSS degraded; fallback voice active");
+        }
+        if (environmentContext.failures.length) {
+          warnings.push(
+            `Telemetry limited: ${environmentContext.failures.join(", ")}`,
+          );
+        }
+        if (warnings.length) {
+          hint += ` (${warnings.join("; ")})`;
+        }
+        return hint;
+      }
+
+      function buildStatusMessage() {
+        const statusBits = ["Ready"];
+        if (!voiceRssKey || voiceRssDegraded) {
+          statusBits.push("fallback voice");
+        }
+        if (voiceRssDegraded && voiceRssKey) {
+          statusBits.push("Voice RSS degraded");
+        }
+        if (environmentContext.failures.length) {
+          statusBits.push("limited telemetry");
+        }
+        return statusBits.join(" – ");
       }
 
       function addMessage(role, text, note) {
@@ -489,29 +861,120 @@
       }
 
       function setAvatar(frame, speaking = false) {
-        avatarEl.src = frame;
+        if (lastAvatarFrame !== frame) {
+          avatarEl.src = frame;
+          lastAvatarFrame = frame;
+        }
         avatarEl.classList.toggle("speaking", speaking);
       }
 
-      function startAvatarSpeechAnimation() {
-        if (speakingInterval) {
-          clearInterval(speakingInterval);
+      function clearAvatarAnimationTimers() {
+        if (speechAnimationRaf) {
+          cancelAnimationFrame(speechAnimationRaf);
+          speechAnimationRaf = null;
+        }
+        if (fallbackSpeechInterval) {
+          clearInterval(fallbackSpeechInterval);
+          fallbackSpeechInterval = null;
+        }
+      }
+
+      function ensureAvatarAnalyser(audioElement) {
+        if (!audioElement) {
+          return false;
+        }
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) {
+          return false;
+        }
+        if (!audioContext) {
+          try {
+            audioContext = new AudioCtx();
+          } catch (err) {
+            return false;
+          }
+        }
+        if (audioContext && audioContext.state === "suspended") {
+          audioContext.resume().catch(function () {});
+        }
+        if (!responseAudioSource) {
+          try {
+            responseAudioSource =
+              audioContext.createMediaElementSource(audioElement);
+            avatarAnalyser = audioContext.createAnalyser();
+            avatarAnalyser.fftSize = 2048;
+            avatarAnalyser.smoothingTimeConstant = 0.3;
+            responseAudioSource.connect(avatarAnalyser);
+            avatarAnalyser.connect(audioContext.destination);
+            avatarAnalyserData = new Uint8Array(avatarAnalyser.fftSize);
+          } catch (err) {
+            return false;
+          }
+        }
+        if (
+          avatarAnalyser &&
+          (!avatarAnalyserData ||
+            avatarAnalyserData.length !== avatarAnalyser.fftSize)
+        ) {
+          avatarAnalyserData = new Uint8Array(avatarAnalyser.fftSize);
+        }
+        return Boolean(avatarAnalyser && avatarAnalyserData);
+      }
+
+      function startAvatarSpeechAnimation(audioElement) {
+        clearAvatarAnimationTimers();
+        speakingPoseIndex = 0;
+        lastPoseSwapTime = 0;
+
+        if (ensureAvatarAnalyser(audioElement)) {
+          const animate = (timestamp) => {
+            if (!avatarAnalyser || !avatarAnalyserData) {
+              return;
+            }
+            avatarAnalyser.getByteTimeDomainData(avatarAnalyserData);
+            let sumSquares = 0;
+            for (let i = 0; i < avatarAnalyserData.length; i++) {
+              const centered = avatarAnalyserData[i] - 128;
+              sumSquares += centered * centered;
+            }
+            const rms = Math.sqrt(sumSquares / avatarAnalyserData.length);
+            const normalized = rms / 128;
+            const mouthOpen = normalized > 0.12;
+
+            if (!lastPoseSwapTime || timestamp - lastPoseSwapTime > 340) {
+              speakingPoseIndex =
+                (speakingPoseIndex + 1) % speakingVariants.length;
+              lastPoseSwapTime = timestamp;
+            }
+
+            const currentVariant = speakingVariants[speakingPoseIndex];
+            const frame = mouthOpen
+              ? currentVariant.open
+              : currentVariant.closed;
+            setAvatar(frame, mouthOpen);
+
+            speechAnimationRaf = requestAnimationFrame(animate);
+          };
+          speechAnimationRaf = requestAnimationFrame(animate);
+          return;
+        }
+
+        if (!speakingFrames.length) {
+          setAvatar(idleFrame, true);
+          return;
         }
         let frameIndex = 0;
         setAvatar(speakingFrames[frameIndex], true);
-        speakingInterval = setInterval(() => {
+        fallbackSpeechInterval = setInterval(function () {
           frameIndex = (frameIndex + 1) % speakingFrames.length;
           const frame = speakingFrames[frameIndex];
-          const mouthOpen = frame.includes("open");
+          const mouthOpen = frame.indexOf("open") !== -1;
           setAvatar(frame, mouthOpen);
         }, 180);
       }
 
       function stopAvatarSpeechAnimation() {
-        if (speakingInterval) {
-          clearInterval(speakingInterval);
-          speakingInterval = null;
-        }
+        clearAvatarAnimationTimers();
         setAvatar(idleFrame, false);
       }
 
@@ -581,6 +1044,8 @@
           alert("Please enter your Gemini API key.");
           return;
         }
+        voiceRssKey = voiceKeyInput ? voiceKeyInput.value.trim() : "";
+        voiceRssDegraded = !voiceRssKey;
         if (typeof MediaRecorder === "undefined") {
           alert(
             "Media recording is not supported in this browser. Try using the latest version of Chrome, Edge, or Firefox.",
@@ -607,19 +1072,22 @@
         }
 
         await playStartupSequence();
+        await refreshEnvironmentContext();
         setupRecorder();
         connected = true;
         connectBtn.textContent = "Disconnect";
         connectBtn.disabled = false;
         talkBtn.disabled = false;
-        hintText.textContent = "Hold the button, speak, then release to send.";
-        updateStatus(true, "Ready");
+        hintText.textContent = buildConnectionHint();
+        updateStatus(true, buildStatusMessage());
         conversationHistory.length = 0;
       });
 
       function disconnect() {
         connected = false;
         apiKey = "";
+        voiceRssKey = "";
+        voiceRssDegraded = false;
         connectBtn.textContent = "Connect";
         talkBtn.disabled = true;
         connectBtn.disabled = false;
@@ -634,6 +1102,11 @@
           mediaStream = null;
         }
         conversationHistory.length = 0;
+        environmentContext.location = null;
+        environmentContext.timezone = null;
+        environmentContext.weather = null;
+        environmentContext.failures = [];
+        updateSystemInstruction();
       }
 
       function setupRecorder() {
@@ -713,7 +1186,7 @@
             throw new Error("Model response did not include text.");
           }
           aiEntry.textEl.textContent = responseText;
-          await playGeminiAudio(responseText);
+          await playAssistantAudio(responseText);
           updateStatus(true, "Ready");
         } catch (err) {
           console.error(err);
@@ -773,6 +1246,7 @@
       }
 
       async function respondWithGemini() {
+        updateSystemInstruction();
         const body = {
           model: GEMINI_CHAT_MODEL,
           contents: cloneHistory(),
@@ -839,83 +1313,215 @@
         return text.trim();
       }
 
-      async function playGeminiAudio(text) {
+      function segmentTextForTts(text) {
+        if (!text) return [];
+        const normalized = text.replace(/\s+/g, " ").trim();
+        if (!normalized) return [];
+
+        const sentenceMatches = normalized.match(/[^.!?]+[.!?]?/g);
+        if (!sentenceMatches) return [normalized];
+
+        const sentences = [];
+        for (let i = 0; i < sentenceMatches.length; i++) {
+          const sentence = sentenceMatches[i].trim();
+          if (sentence) {
+            sentences.push(sentence);
+          }
+        }
+
+        if (!sentences.length) {
+          return [normalized];
+        }
+
+        const segments = [];
+        const firstBatchSize = Math.min(2, sentences.length);
+        const firstSegment = sentences
+          .slice(0, firstBatchSize)
+          .join(" ")
+          .trim();
+        if (firstSegment) {
+          segments.push(firstSegment);
+        }
+
+        let cursor = firstBatchSize;
+        const subsequentBatchSize = 3;
+        while (cursor < sentences.length) {
+          const batch = sentences
+            .slice(cursor, cursor + subsequentBatchSize)
+            .join(" ")
+            .trim();
+          if (batch) {
+            segments.push(batch);
+          }
+          cursor += subsequentBatchSize;
+        }
+
+        return segments.length ? segments : [normalized];
+      }
+
+      async function playAssistantAudio(text) {
+        const segments = segmentTextForTts(text);
+        if (!segments.length) {
+          return;
+        }
+
+        if (!voiceRssKey) {
+          updateStatus(true, buildStatusMessage());
+          await speakWithSpeechSynthesis(text);
+          return;
+        }
+
         try {
-          const audioPart = await synthesizeWithGemini(text);
-          if (audioPart) {
-            await playResponseAudio(audioPart);
+          if (segments.length === 1) {
+            const singleClip = await synthesizeWithVoiceRss(segments[0]);
+            if (singleClip) {
+              await playVoiceRssClip(singleClip);
+              updateStatus(true, buildStatusMessage());
+              hintText.textContent = buildConnectionHint();
+              return;
+            }
+          } else {
+            const firstPromise = synthesizeWithVoiceRss(segments[0]);
+            const remainingEntries = [];
+            for (let i = 1; i < segments.length; i++) {
+              remainingEntries.push({
+                text: segments[i],
+                promise: synthesizeWithVoiceRss(segments[i]),
+              });
+            }
+
+            const firstClip = await firstPromise;
+            if (firstClip) {
+              await playVoiceRssClip(firstClip);
+            }
+
+            for (let i = 0; i < remainingEntries.length; i++) {
+              let clip = null;
+              try {
+                clip = await remainingEntries[i].promise;
+              } catch (chunkErr) {
+                console.warn(
+                  "Voice RSS chunk failed, switching to speech synthesis.",
+                  chunkErr,
+                );
+                voiceRssDegraded = true;
+                updateStatus(
+                  false,
+                  "Voice RSS unavailable — fallback voice active",
+                );
+                const pendingText = remainingEntries
+                  .slice(i)
+                  .map(function (entry) {
+                    return entry.text;
+                  })
+                  .join(" ");
+                if (pendingText) {
+                  await speakWithSpeechSynthesis(pendingText);
+                }
+                hintText.textContent = buildConnectionHint();
+                updateStatus(true, buildStatusMessage());
+                return;
+              }
+
+              if (clip) {
+                await playVoiceRssClip(clip);
+              }
+            }
+            updateStatus(true, buildStatusMessage());
+            hintText.textContent = buildConnectionHint();
             return;
           }
         } catch (err) {
-          const ttsWarning =
-            "Gemini TTS unavailable, falling back to speech synthesis.";
-          console.warn(ttsWarning, err);
+          console.warn(
+            "Voice RSS TTS unavailable, falling back to speech synthesis.",
+            err,
+          );
+          voiceRssDegraded = true;
+          updateStatus(false, "Voice RSS unavailable — fallback voice active");
         }
+
         await speakWithSpeechSynthesis(text);
+        updateStatus(true, buildStatusMessage());
+        hintText.textContent = buildConnectionHint();
       }
 
-      async function synthesizeWithGemini(text) {
-        const body = {
-          model: GEMINI_TTS_MODEL,
-          contents: [
-            {
-              role: "user",
-              parts: [{ text }],
-            },
-          ],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: "Kore" },
-              },
-            },
-          },
-        };
-
-        const ttsUrl = `${GEMINI_BASE_URL}/${encodeURIComponent(
-          GEMINI_TTS_MODEL,
-        )}:generateContent?key=${encodeURIComponent(apiKey)}`;
-        const ttsOptions = {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        };
-
-        const response = await fetch(ttsUrl, ttsOptions);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error("TTS failed: " + errorText);
+      async function synthesizeWithVoiceRss(text) {
+        if (!voiceRssKey) {
+          throw new Error("Voice RSS key missing");
         }
 
-        const data = await response.json();
-        let inline = null;
-        if (data && data.candidates && data.candidates.length) {
-          const first = data.candidates[0];
-          if (first && first.content && first.content.parts) {
-            inline = first.content.parts.find(function (part) {
-              return part && part.inlineData && part.inlineData.data;
-            });
+        const params = new URLSearchParams({
+          key: voiceRssKey,
+          src: text,
+          hl: VOICE_RSS_LANGUAGE,
+          v: VOICE_RSS_VOICE,
+          c: VOICE_RSS_CODEC,
+          f: VOICE_RSS_FORMAT,
+        });
+
+        const url = `${VOICE_RSS_ENDPOINT}?${params.toString()}`;
+        const response = await fetch(url, { cache: "no-store" });
+        const contentType = response.headers.get("content-type") || "";
+        if (!response.ok) {
+          throw new Error(
+            `Voice RSS request failed (${response.status}): ${await response.text()}`,
+          );
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        const audioLike = contentType.includes("audio");
+        if (!audioLike || arrayBuffer.byteLength < 16) {
+          try {
+            const textDecoder = new TextDecoder("utf-8");
+            const message = textDecoder.decode(arrayBuffer);
+            if (message && message.toUpperCase().includes("ERROR")) {
+              throw new Error(`Voice RSS error: ${message}`);
+            }
+          } catch (err) {
+            throw new Error("Voice RSS returned invalid payload");
           }
         }
-        if (!inline) {
-          throw new Error("TTS response did not contain audio data.");
+        if (audioLike) {
+          try {
+            const headerBytes = new Uint8Array(arrayBuffer.slice(0, 32));
+            const headerText = Array.from(headerBytes)
+              .map(function (code) {
+                return String.fromCharCode(code);
+              })
+              .join("")
+              .toUpperCase();
+            if (headerText.indexOf("ERROR") === 0) {
+              const textDecoder = new TextDecoder("utf-8");
+              const message = textDecoder.decode(arrayBuffer);
+              throw new Error(`Voice RSS error: ${message}`);
+            }
+          } catch (err) {
+            if (
+              err &&
+              err.message &&
+              err.message.startsWith("Voice RSS error")
+            ) {
+              throw err;
+            }
+          }
         }
+
+        const blobType = contentType.includes("wav")
+          ? "audio/wav"
+          : "audio/mpeg";
+        const blob = new Blob([arrayBuffer], { type: blobType });
+        const objectUrl = URL.createObjectURL(blob);
         return {
-          data: inline.inlineData.data,
-          mimeType: inline.inlineData.mimeType || "audio/wav",
+          url: objectUrl,
+          cleanup() {
+            URL.revokeObjectURL(objectUrl);
+          },
         };
       }
 
-      async function playResponseAudio(audioPart) {
-        const buffer = base64ToArrayBuffer(audioPart.data);
-        const { audioBuffer, mimeType } = ensureWavContainer(
-          buffer,
-          audioPart.mimeType,
-        );
-        const blob = new Blob([audioBuffer], { type: mimeType });
-        const url = URL.createObjectURL(blob);
+      async function playVoiceRssClip(clip) {
+        if (!clip || !clip.url) {
+          return;
+        }
         if (!responseAudio.paused) {
           responseAudio.pause();
           responseAudio.currentTime = 0;
@@ -923,26 +1529,41 @@
         if ("speechSynthesis" in window) {
           speechSynthesis.cancel();
         }
-        responseAudio.src = url;
-        startAvatarSpeechAnimation();
+        responseAudio.src = clip.url;
 
-        const cleanup = () => {
-          stopAvatarSpeechAnimation();
-          URL.revokeObjectURL(url);
-          responseAudio.onended = null;
-        };
+        return new Promise((resolve, reject) => {
+          let settled = false;
+          const finalize = (error) => {
+            if (settled) return;
+            settled = true;
+            responseAudio.onended = null;
+            responseAudio.onerror = null;
+            stopAvatarSpeechAnimation();
+            try {
+              if (clip.cleanup) {
+                clip.cleanup();
+              }
+            } catch (cleanupErr) {
+              console.warn("Voice RSS clip cleanup failed", cleanupErr);
+            }
+            if (error) {
+              voiceRssDegraded = true;
+              reject(error);
+            } else {
+              voiceRssDegraded = false;
+              resolve();
+            }
+          };
 
-        responseAudio.onended = () => {
-          cleanup();
-        };
+          responseAudio.onended = () => finalize();
+          responseAudio.onerror = () =>
+            finalize(new Error("Audio playback encountered an error."));
 
-        try {
-          await responseAudio.play();
-        } catch (err) {
-          console.warn("Playback failed", err);
-          cleanup();
-          throw err;
-        }
+          startAvatarSpeechAnimation(responseAudio);
+          responseAudio.play().catch((err) => {
+            finalize(err);
+          });
+        });
       }
 
       async function speakWithSpeechSynthesis(text) {
@@ -969,104 +1590,6 @@
             resolve();
           }
         });
-      }
-
-      function base64ToArrayBuffer(base64) {
-        const binary = atob(base64);
-        const len = binary.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        return bytes.buffer;
-      }
-
-      function ensureWavContainer(buffer, mimeType = "") {
-        const type = (mimeType || "").toLowerCase();
-        const bytes = new Uint8Array(buffer);
-        const hasRiffHeader =
-          bytes.length > 4 &&
-          bytes[0] === 0x52 &&
-          bytes[1] === 0x49 &&
-          bytes[2] === 0x46 &&
-          bytes[3] === 0x46;
-
-        if (
-          hasRiffHeader ||
-          (type && !type.includes("pcm") && !type.includes("wav"))
-        ) {
-          return { audioBuffer: buffer, mimeType: type || "audio/wav" };
-        }
-
-        const sampleRate = extractSampleRate(type) || GEMINI_TTS_SAMPLE_RATE;
-        const wavBuffer = pcmToWav(buffer, {
-          sampleRate,
-          channels: GEMINI_TTS_CHANNELS,
-          sampleWidth: GEMINI_TTS_SAMPLE_WIDTH_BYTES,
-        });
-        return { audioBuffer: wavBuffer, mimeType: "audio/wav" };
-      }
-
-      function pcmToWav(pcmBuffer, { sampleRate, channels, sampleWidth }) {
-        const sourceView =
-          pcmBuffer instanceof ArrayBuffer
-            ? new Uint8Array(pcmBuffer)
-            : new Uint8Array(pcmBuffer.buffer);
-        const dataLength = sourceView.byteLength;
-        const buffer = new ArrayBuffer(44 + dataLength);
-        const view = new DataView(buffer);
-
-        function writeString(offset, str) {
-          for (let i = 0; i < str.length; i++) {
-            view.setUint8(offset + i, str.charCodeAt(i));
-          }
-        }
-
-        let offset = 0;
-        writeString(offset, "RIFF");
-        offset += 4;
-        view.setUint32(offset, 36 + dataLength, true);
-        offset += 4;
-        writeString(offset, "WAVE");
-        offset += 4;
-        writeString(offset, "fmt ");
-        offset += 4;
-        view.setUint32(offset, 16, true);
-        offset += 4; // Subchunk1Size for PCM
-        view.setUint16(offset, 1, true);
-        offset += 2; // Audio format (PCM)
-        view.setUint16(offset, channels, true);
-        offset += 2;
-        view.setUint32(offset, sampleRate, true);
-        offset += 4;
-        const byteRate = sampleRate * channels * sampleWidth;
-        view.setUint32(offset, byteRate, true);
-        offset += 4;
-        const blockAlign = channels * sampleWidth;
-        view.setUint16(offset, blockAlign, true);
-        offset += 2;
-        view.setUint16(offset, sampleWidth * 8, true);
-        offset += 2;
-        writeString(offset, "data");
-        offset += 4;
-        view.setUint32(offset, dataLength, true);
-        offset += 4;
-
-        new Uint8Array(buffer, 44).set(sourceView);
-
-        return buffer;
-      }
-
-      function extractSampleRate(mimeType) {
-        if (!mimeType) return null;
-        const match = /rate=(\d+)/i.exec(mimeType);
-        if (match && match[1]) {
-          const value = parseInt(match[1], 10);
-          if (!Number.isNaN(value) && value > 0) {
-            return value;
-          }
-        }
-        return null;
       }
 
       function blobToBase64(blob) {
