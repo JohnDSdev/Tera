@@ -421,9 +421,9 @@
         "arm_behind_mouth_closed.png",
       ];
 
-      const APP_VERSION = "v1.3.0";
+      const APP_VERSION = "v1.5.0";
       const GEMINI_CHAT_MODEL = "gemini-2.5-flash";
-      const GEMINI_TTS_MODEL = "gemini-2.5-flash-tts";
+      const GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
       const GEMINI_BASE_URL =
         "https://generativelanguage.googleapis.com/v1beta/models";
       const GEMINI_TTS_SAMPLE_RATE = 24000;
@@ -734,6 +734,7 @@
         const mimeType = blob.type || recordedMimeType || "audio/webm";
         const base64 = await blobToBase64(blob);
         const body = {
+          model: GEMINI_CHAT_MODEL,
           contents: [
             {
               role: "user",
@@ -773,6 +774,7 @@
 
       async function respondWithGemini() {
         const body = {
+          model: GEMINI_CHAT_MODEL,
           contents: cloneHistory(),
           systemInstruction,
           generationConfig: {
@@ -854,6 +856,7 @@
 
       async function synthesizeWithGemini(text) {
         const body = {
+          model: GEMINI_TTS_MODEL,
           contents: [
             {
               role: "user",
@@ -862,11 +865,10 @@
           ],
           generationConfig: {
             responseModalities: ["AUDIO"],
-            responseMimeType: "audio/pcm;rate=24000",
-          },
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: "Kore" },
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: "Kore" },
+              },
             },
           },
         };
@@ -996,8 +998,9 @@
           return { audioBuffer: buffer, mimeType: type || "audio/wav" };
         }
 
+        const sampleRate = extractSampleRate(type) || GEMINI_TTS_SAMPLE_RATE;
         const wavBuffer = pcmToWav(buffer, {
-          sampleRate: GEMINI_TTS_SAMPLE_RATE,
+          sampleRate,
           channels: GEMINI_TTS_CHANNELS,
           sampleWidth: GEMINI_TTS_SAMPLE_WIDTH_BYTES,
         });
@@ -1052,6 +1055,18 @@
         new Uint8Array(buffer, 44).set(sourceView);
 
         return buffer;
+      }
+
+      function extractSampleRate(mimeType) {
+        if (!mimeType) return null;
+        const match = /rate=(\d+)/i.exec(mimeType);
+        if (match && match[1]) {
+          const value = parseInt(match[1], 10);
+          if (!Number.isNaN(value) && value > 0) {
+            return value;
+          }
+        }
+        return null;
       }
 
       function blobToBase64(blob) {
